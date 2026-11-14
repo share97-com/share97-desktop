@@ -1,0 +1,31 @@
+[
+ {
+  "mode": "redesign",
+  "depth": "full",
+  "scope": "app",
+  "shape": "app screen",
+  "theme": "lumen",
+  "axes": "dark/roman-serif/warm",
+  "hero": "none",
+  "nav": "kept shell, quiet rail",
+  "footer": "none",
+  "imagery": "product",
+  "photos": [],
+  "entry": "sign-in diagram",
+  "fingerprint": "lumen-app-rail-floor",
+  "sections": [
+   "connect",
+   "home",
+   "settings",
+   "billing"
+  ],
+  "signature": "agent floor and the sign-in path diagram",
+  "waived": [
+   "38iii",
+   "47c",
+   "39b"
+  ],
+  "prompt": "Share97 Desktop social media AI agent automation console",
+  "date": "2026-11-14"
+ }
+]

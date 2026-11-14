@@ -1,0 +1,262 @@
+/* Impeccable · world: Onay Dolaşım Fişi (office routing slip), shared with share97.com · seed:2ad795de5125ef60 · Operate register: the world lends palette, face and the paraf green; no slip performance in working screens */
+/* Hallmark · waive 39b · caption-bar tabs at 28 to 32px · they live inside Windows' 40px caption bar beside the native window controls */
+/* Kurumsal: başlık, etiket ve düğmeler cümle düzeninde; küçük harf zorlaması yok */
+@import 'tailwindcss';
+@import './tokens.css';
+@import './base.css' layer(base);
+@import '@fontsource-variable/archivo/standard.css';
+@import '@fontsource-variable/jetbrains-mono';
+
+/*
+ * Share97 Desktop: Onay Dolaşım Fişi (share97.com ile aynı dünya). Tek aile Archivo: başlık ve wordmark dar genişlikte,
+ * gövde normal; paraf yeşili tek eylem rengi.
+ */
+@theme {
+  --color-bg: var(--color-paper);
+  --color-panel: var(--color-paper-2);
+  --color-raised: var(--color-paper-3);
+  --color-line: var(--color-rule);
+  --color-line-2: var(--color-rule-2);
+  --color-fg: var(--color-ink);
+  --color-fg-2: var(--color-ink-2);
+  --color-muted: oklch(72% 0.02 65);
+  --color-brand: var(--color-accent);
+  --color-brand-ink: var(--color-accent-ink);
+  --color-brand-deep: var(--color-accent-deep);
+  --color-brand-soft: var(--color-accent-soft);
+  --color-ok: var(--color-live);
+  --color-warn: oklch(82% 0.13 85);
+  --color-danger: var(--color-error);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-outlier);
+  --font-display: 'Archivo Variable', ui-sans-serif, sans-serif;
+  --radius-card: 12px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+  line-height: 1.5;
+  overflow: hidden;
+  overflow-x: clip;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Yoğun uygulama gövdesi 14px; rem 16px kalıyor, böylece text-xs 12px'in altına inmiyor. */
+body,
+#root {
+  font-size: var(--text-sm);
+}
+
+/*
+ * Uygulama çerçevesi seçilmiyor; okunan içerik (sohbet, ayarlar) `select-text` ile seçilebiliyor.
+ * İçindeki düğmeler yine seçilmiyor: sürükleyerek seçerken düğme yazıları kopyaya karışmasın.
+ */
+.select-text button,
+.select-text [role='button'],
+.select-text [role='switch'] {
+  user-select: none;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Pencere düğmeleri (titleBarOverlay) için sağda boşluk. */
+.caption-bar {
+  height: 40px;
+  padding-right: calc(100vw - env(caption-bar-area-width, calc(100vw - 140px)) - env(caption-bar-area-x, 0px));
+}
+
+/* Başlıklar: kurumsal iş ekranı; Archivo hafif dar, yarı kalın, yazıldığı gibi (sitedeki afiş başlığından sakin). */
+@layer base {
+  h1,
+  h2,
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 680;
+    font-stretch: 90%;
+    letter-spacing: -0.01em;
+    line-height: 1.12;
+  }
+}
+
+/* **Wordmark**: Share97 dar ve kalın, "97" paraf yeşilinde; sitedeki logoyla aynı. */
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-stretch: 82%;
+  letter-spacing: -0.01em;
+}
+
+/* Etiket sesi: durum, sayaç, model kimliği. Gövde yüzü 600, cümle düzeninde, bir adım küçük. */
+.readout {
+  font: 600 0.8125rem/1.4 var(--font-body);
+  color: var(--color-ink-2);
+}
+
+/* Birincil eylem: pirinç dolgu. Sayfada bir tane. */
+.btn-primary {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-accent-deep);
+}
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+/* Giriş başlığındaki fiil: aynı mor, alt çizgisi bir kez çizilir. */
+.verb {
+  display: inline-block;
+  color: var(--color-accent);
+}
+.verb::after {
+  content: '';
+  display: block;
+  height: var(--rule-hair);
+  background: currentColor;
+  transform-origin: left;
+  animation: draw var(--dur-long) var(--ease-out) both;
+}
+@keyframes draw {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* Diyagramda pirinç yol: çalışırken bir ışık yol boyunca akar (durum, süs değil). */
+.path-live {
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent) no-repeat;
+  background-size: 30% 100%;
+  animation: run 1.6s linear infinite;
+}
+@keyframes run {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
+/* Odak halkası anında; base katmanında, böylece bir kabın odağını gösteren alan `outline-none` ile kendi halkasını bırakabiliyor. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+    transition: none;
+  }
+}
+
+/* Kart ve panel başlıkları (h3) gövde yüzünde: serif bu boyutta incelir. */
+@layer base {
+  h3 {
+    font-family: var(--font-body);
+    letter-spacing: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .path-live {
+    animation: none;
+    background: var(--color-accent);
+    opacity: 0.6;
+  }
+}
+
+/* Agent cevapları (Markdown + GFM tabloları). */
+.prose-chat > * + * {
+  margin-top: 0.75em;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3 {
+  font-family: var(--font-body);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 1.1em;
+}
+.prose-chat h1 {
+  font-size: 1.3em;
+}
+.prose-chat h2 {
+  font-size: 1.15em;
+}
+.prose-chat ul {
+  list-style: disc;
+  padding-left: 1.4em;
+}
+.prose-chat ol {
+  list-style: decimal;
+  padding-left: 1.4em;
+}
+.prose-chat li + li {
+  margin-top: 0.25em;
+}
+.prose-chat a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+.prose-chat code {
+  font-family: var(--font-outlier);
+  font-size: 0.88em;
+  background: var(--color-paper-3);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.prose-chat pre {
+  background: var(--color-paper-3);
+  border: 1px solid var(--color-rule);
+  padding: 0.8em;
+  border-radius: var(--radius-card);
+  overflow-x: auto;
+}
+.prose-chat pre code {
+  background: none;
+  padding: 0;
+}
+.prose-chat table {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.prose-chat th,
+.prose-chat td {
+  border-bottom: 1px solid var(--color-rule);
+  padding: 0.35em 0.7em;
+  text-align: left;
+}
+.prose-chat th {
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.prose-chat blockquote {
+  border-left: 1px solid var(--color-rule-2);
+  padding-left: 0.8em;
+  color: var(--color-muted);
+}
+
+/* Figür: rakam başlık genişliğinde; birimi yanında etiket sesinde. */
+.figure {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-stretch: 80%;
+  letter-spacing: var(--tracking-display);
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
+}

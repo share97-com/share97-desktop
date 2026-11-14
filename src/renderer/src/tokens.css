@@ -1,0 +1,40 @@
+/* Onay Dolaşım Fişi jetonları (share97.com ile aynı dünya). Varsayılan gece masası (koyu), açık ayar gün masası.
+   `--color-muted` ve yazı tipi aileleri Tailwind `@theme` içinde (styles.css); burada değerler. */
+:root {
+  color-scheme: dark;
+  --space-3xs: 2px; --space-2xs: 4px; --space-xs: 8px; --space-sm: 12px; --space-md: 16px; --space-lg: 24px; --space-xl: 40px; --space-2xl: 64px; --space-3xl: 96px; --space-4xl: 144px;
+  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-md: 1rem; --text-lg: 1.2rem; --text-xl: 1.44rem; --text-2xl: 1.728rem; --text-3xl: 2.074rem;
+  --text-display-s: 1.44rem; --text-display: 1.728rem; --text-section: 1.2rem; --text-title: 1rem; --text-lead: 1rem;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); --ease-in: cubic-bezier(0.7, 0, 0.84, 0); --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms; --dur-short: 220ms; --dur-long: 420ms;
+  --container: 1440px; --gutter: 64px; --gap-columns: 32px; --section-gap-s: 120px; --section-gap: 144px; --section-gap-l: 176px;
+  --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
+
+  /* gece masası: lacivert-siyah zemin, açık mürekkep, paraf yeşili tek eylem rengi */
+  --color-paper: oklch(17% 0.012 258); --color-paper-2: oklch(21% 0.014 258); --color-paper-3: oklch(22.5% 0.015 258);
+  --color-ink: oklch(96% 0.004 250); --color-ink-2: oklch(86% 0.01 252); --color-muted: oklch(72% 0.014 255);
+  --color-rule: oklch(30% 0.018 258); --color-rule-2: oklch(42% 0.02 258);
+  --color-accent: oklch(62% 0.12 158); --color-accent-deep: oklch(52% 0.115 158); --color-accent-soft: oklch(30% 0.05 158);
+  --color-accent-ink: oklch(99% 0.002 250); --color-focus: oklch(80% 0.12 158);
+  --color-live: oklch(80% 0.12 158); --color-warn: oklch(82% 0.13 85); --color-error: oklch(72% 0.16 27); --color-success: oklch(78% 0.12 158);
+
+  --font-body: "Archivo Variable", "Segoe UI Variable", ui-sans-serif, sans-serif;
+  --font-outlier: "JetBrains Mono Variable", ui-monospace, monospace;
+  --radius-card: 12px; --radius-pill: 999px; --rule-hair: 1px;
+  --shadow-card: 0 10px 24px -16px oklch(0% 0 0 / 0.55);
+  --tracking-display: -0.015em; --display-weight: 760;
+}
+
+/* gün masası: soğuk gri zemin, lacivert-siyah mürekkep, paraf yeşili. Windows açık temada ya da Ayarlar > Görünüm açık. */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --color-paper: oklch(95.5% 0.004 250); --color-paper-2: oklch(98% 0.003 250); --color-paper-3: oklch(99.6% 0.002 250);
+    --color-ink: oklch(21% 0.032 258); --color-ink-2: oklch(34% 0.028 257); --color-muted: oklch(46% 0.024 256);
+    --color-rule: oklch(89.6% 0.008 250); --color-rule-2: oklch(76% 0.014 252);
+    --color-accent: oklch(45% 0.11 158); --color-accent-deep: oklch(39% 0.1 158); --color-accent-soft: oklch(93% 0.04 158);
+    --color-accent-ink: oklch(99.6% 0.002 250); --color-focus: oklch(45% 0.11 158);
+    --color-live: oklch(45% 0.11 158); --color-warn: oklch(47% 0.12 65); --color-error: oklch(48% 0.19 27); --color-success: oklch(44% 0.11 158);
+    --shadow-card: 0 10px 24px -16px oklch(21% 0.032 258 / 0.25);
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Share97 for Chrome",
+  "short_name": "Share97",
+  "version": "1.4.0",
+  "description": "Connects this Chrome to Share97 Desktop: add the social media accounts you are signed in to here and let your Share97 workers and workflows operate them in your own tabs.",
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Share97",
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "icons": {
+    "16": "icon.png",
+    "32": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  },
+  "permissions": [
+    "tabs",
+    "debugger",
+    "storage",
+    "alarms",
+    "history",
+    "management",
+    "downloads",
+    "bookmarks",
+    "sessions",
+    "cookies"
+  ],
+  "host_permissions": [
+    "https://*.instagram.com/*",
+    "https://*.tiktok.com/*",
+    "https://x.com/*",
+    "https://*.linkedin.com/*",
+    "https://*.facebook.com/*",
+    "https://*.youtube.com/*",
+    "https://*.pinterest.com/*",
+    "https://*.threads.com/*",
+    "https://*.reddit.com/*"
+  ]
+}

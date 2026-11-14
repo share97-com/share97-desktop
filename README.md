@@ -17,6 +17,7 @@ Most social media schedulers post only through official APIs, which leaves out p
 - **Chrome extension**: let the agent work in tabs of your everyday Google Chrome, where you are already signed in.
 - **Scheduled workers**: give the agent an instruction, the accounts and a schedule (manual, every N minutes, or daily at set times); every run becomes a chat you can open.
 - **Runs in the background**: keeps working in the tray, can start with Windows, and can keep the computer awake for scheduled posts.
+- **Backups**: one click saves every setting, browser and sign-in (cookies) into a compressed `.share97` file in Documents\Share97\Yedekler. Update it any time, show it in its folder, or restore it after a reinstall or on a new computer.
 - **Every run on record**: each job is logged with its result and the post link, on this computer and on share97.com.
 
 ## Supported platforms
@@ -52,3 +53,5 @@ The installer is not code-signed yet, so Windows SmartScreen may show a warning 
 - Website: https://share97.com
 - Download page: https://share97.com/download
 - Support: support@share97.com
+
+Building from source: see [DEVELOPMENT.md](DEVELOPMENT.md).
