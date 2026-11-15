@@ -34,6 +34,14 @@ export const contentWarnings = (o: { caption: number; media: number; texts: numb
   ...(o.dirs > 0 ? (['subfolders'] as const) : []),
 ]
 
+/**
+ * **Standart dosya adları.** Bir içerik klasöründe: `content.txt` (metin), `image.<uzantı>` ve
+ * `video.<uzantı>` (aynı türden birden çok dosya varsa `image-1`, `image-2`…), `status.txt` (durum).
+ * Uygulamanın yazdığı her dosya (örnek, eklenen, üretilen) bu adları alır. `index`: aynı türdeki sıra (0'dan),
+ * `total`: o türden kaç dosya var.
+ */
+export const mediaName = (kind: LocalMedia['kind'], index: number, total: number, ext: string) => `${kind}${total > 1 ? `-${index + 1}` : ''}.${ext.replace(/^\./, '').toLowerCase()}`
+
 const STAMP = /^\d{4}-\d\d-\d\d \d\d:\d\d ?/
 
 /**

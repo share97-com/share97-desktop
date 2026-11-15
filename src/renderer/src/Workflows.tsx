@@ -80,6 +80,13 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
         !state?.error && <Loader2 className="size-5 animate-spin text-muted" />
       ) : (
         <>
+          <label className="flex items-start gap-3 rounded-lg border border-line bg-panel/80 p-3 text-sm">
+            <Switch on={ov.serialRuns !== false} label={t.flows.serial} disabled={busy === 'serial'} onChange={(on) => act('serial', api().workflows.setSerial(on))} />
+            <span>
+              {t.flows.serial}
+              <span className="block text-xs text-muted">{t.flows.serialHint}</span>
+            </span>
+          </label>
           {!ov.workflows.length && (
             <Card className="text-center">
               <p className="text-sm text-muted">{t.flows.empty}</p>

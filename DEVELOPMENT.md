@@ -50,7 +50,13 @@ Oturumlar cihazdan çıkmaz; sunucuda yalnız hesabın adı ve bu cihaza bağlı
 
 **İçerik yalnız bu bilgisayarda** (`src/main/contents.ts`, saf kısmı `src/shared/contents.ts`): sitede içerik alanı yoktur. Bu cihaza atanmış, kuyruktan içerik alan her akışın bir klasörü vardır: `<kullanıcı klasörü>/share97-desktop/workflow/<akış kimliği>/contents/1, 2, 3…`. Her numaralı klasör bir içeriktir: bir metin dosyası (açıklama), görseller ya da videolar ve durumu gösteren `status.txt` (`pending` · `publishing` · `published` · `failed`; ikinci satır not). Akış çalışınca sunucu sıradaki içeriği yoklamayla ister (`poll` yanıtındaki `content`); cihaz `pending` olanlardan sıradakini ya da rastgele birini seçer (akışın ayarı), `publishing` yazar ve metni + dosya adlarını bildirir (`POST /api/v1/worker/content/<id>`). Yayını yine bu cihazdaki agent yapar (dosyalar klasörden yüklenir, sunucuya çıkmaz) ve sonuç `status.txt`e yazılır: `published` olan bir daha alınmaz; yeniden paylaşmak için `pending` yazılır. Tekrar açıksa hepsi paylaşılınca baştan başlar.
 
-`1` numaralı klasör baştan sona **örnektir** (`resources/examples`ten): metin, bir görsel, bir video ve `published` durumu. Hiç paylaşılmaz, tekrar açıkken de (`isExample`).
+**Standart dosya adları** (`mediaName`): `content.txt`, `image.<uzantı>`, `video.<uzantı>` (aynı türden birden çok: `image-1`, `image-2`…), `status.txt`. Uygulamanın yazdığı her dosya (örnek, eklenen, üretilen) bu adları alır; elle eklenen dosyanın adı serbesttir.
+
+**Agent araçları**: `list_workflows`, `list_workflow_contents`, `add_workflow_content`, `requeue_workflow_content` (`agent/tools.ts`): kullanıcı sohbetten "şu akışa 6 içerik hazırla" der, agent metinleri yazar, görselleri üretir ve numaralı klasörleri oluşturur.
+
+**Akışlar sırayla** (hesap ayarı, varsayılan açık; Akışlar ekranındaki anahtar, `PATCH /api/v1/worker/me {serialRuns}`): sunucuda bir çalışma bitmeden diğeri başlamaz (`waitTurn`); cihazda işler zaten tek sıradan koşar.
+
+`1` numaralı klasör baştan sona **örnektir** (`resources/examples`ten): `content.txt`, `image.jpg`, `video.mp4` ve `published` durumu. Hiç paylaşılmaz, tekrar açıkken de (`isExample`).
 
 **Yapay zekâ ile içerik üretimi** (`generateContents`): Akışlar ekranındaki "İçerik üret" bir içeriği örnek alarak ya da yalnız konudan, akışın klasörüne yeni numaralı içerikler yazar: özgün bir paylaşım metni (`content.txt`), istenirse bir görsel (`image.png`) ve `pending` durumu. Metin ve görsel Share97 geçidiyle üretilir (bedeli krediden).
 

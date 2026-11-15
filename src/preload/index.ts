@@ -31,6 +31,7 @@ const api: Api = {
   },
   workflows: {
     setActive: (id, active) => call('workflows:setActive', id, active),
+    setSerial: (on) => call('workflows:setSerial', on),
     setWorker: (id, workerId) => call('workflows:setWorker', id, workerId),
     run: (id) => call('workflows:run', id),
     setContent: (id, content) => call('workflows:setContent', id, content),

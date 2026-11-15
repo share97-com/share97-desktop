@@ -1,14 +1,14 @@
 import { existsSync } from 'node:fs'
-import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { extname, join } from 'node:path'
 import { app, shell } from 'electron'
 import type { Overview } from '../shared/types.ts'
-import { contentWarnings, EXAMPLE_NOTE, MAX_CAPTION, MAX_MEDIA, resultNote, stalePublishing, generationMessages, isContentFolder, isExample, isWorkflowId, MAX_GENERATE, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type ContentSettings, type ContentStatus, type GenerateInput, type LocalContent, type LocalMedia } from '../shared/contents.ts'
+import { contentWarnings, mediaName, EXAMPLE_NOTE, MAX_CAPTION, MAX_MEDIA, resultNote, stalePublishing, generationMessages, isContentFolder, isExample, isWorkflowId, MAX_GENERATE, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type ContentSettings, type ContentStatus, type GenerateInput, type LocalContent, type LocalMedia } from '../shared/contents.ts'
 import { server } from './auth.ts'
 import { IMAGE_MODEL } from './auto.ts'
 import { apiJson } from './gateway.ts'
 import { DEFAULT_MODEL, settings } from './settings.ts'
-import { inside, kindOf, safeName } from './paths.ts'
+import { inside, kindOf } from './paths.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
 import * as ws from './workspace.ts'
 
@@ -35,9 +35,11 @@ const readme = (name: string) =>
     '',
     'One numbered folder per content: 1, 2, 3, 4, 5, 6 ...',
     'Inside each folder:',
-    '  - one .txt file with the post text (for example content.txt)',
-    '  - the images or videos to upload (jpg, png, webp, gif, mp4, mov, webm)',
-    '  - status.txt with the state of that content',
+    '  - content.txt   the post text',
+    '  - image.jpg     the image to upload (several: image-1.jpg, image-2.jpg ...; png, webp, gif too)',
+    '  - video.mp4     the video to upload (several: video-1.mp4 ...; mov, webm too)',
+    '  - status.txt    the state of that content',
+    'Files the app writes always use these names. Files you add by hand may have any name.',
     '',
     'status.txt (first line):',
     '  pending     waiting to be shared (a folder without status.txt is pending too)',
@@ -62,15 +64,17 @@ const readme = (name: string) =>
 const EXAMPLES = join(import.meta.dirname, '../../resources/examples')
 
 /**
- * `1` numaralı klasör baştan sona örnek: metin, bir görsel, bir video ve `status.txt` (`published`: hiç
+ * `1` numaralı klasör baştan sona örnek, standart adlarla: `content.txt`, `image.jpg`, `video.mp4` ve `status.txt` (`published`: hiç
  * paylaşılmaz). Eksik dosyası tamamlanır; kullanıcının değiştirdiği dosyaya dokunulmaz.
  */
 async function writeExample(root: string) {
   const dir = join(root, '1')
   await mkdir(dir, { recursive: true })
   const put = async (name: string, write: (to: string) => Promise<void>) => existsSync(join(dir, name)) || (await write(join(dir, name)))
-  await put('content.txt', (to) => writeFile(to, 'This folder is an example of one content: this text file is the post text, example-image.jpg and example-video.mp4 are the files that get uploaded, and status.txt holds the state.\r\n\r\nFor your own content, create the next numbered folder (2, 3, 4 ...), put the text and the images or videos in it, and leave status.txt out or write "pending" into it. #share97\r\n'))
-  for (const f of ['example-image.jpg', 'example-video.mp4']) await put(f, (to) => copyFile(join(EXAMPLES, f), to))
+  await put('content.txt', (to) => writeFile(to, 'This folder is an example of one content: content.txt is the post text, image.jpg and video.mp4 are the files that get uploaded, and status.txt holds the state.\r\n\r\nFor your own content, create the next numbered folder (2, 3, 4 ...), put the text and the images or videos in it, and leave status.txt out or write "pending" into it. #share97\r\n'))
+  // Önceki sürümlerin örnek dosyaları standart adlara taşınır.
+  for (const f of ['image.jpg', 'video.mp4']) if (existsSync(join(dir, `example-${f}`)) && !existsSync(join(dir, f))) await rename(join(dir, `example-${f}`), join(dir, f))
+  for (const f of ['image.jpg', 'video.mp4']) await put(f, (to) => copyFile(join(EXAMPLES, f), to))
   await put(STATUS, (to) => writeFile(to, statusText('published', EXAMPLE_NOTE)))
 }
 
@@ -157,8 +161,8 @@ async function recoverStale(workflowId: string) {
 }
 
 /**
- * Uygulamadan yeni içerik: sıradaki numaralı klasör, metin (`content.txt`) ve seçilen görseller/videolar
- * (kopyalanır), durumu `pending`. Dönüş: klasör numarası.
+ * Uygulamadan (ekran ya da agent aracı) yeni içerik: sıradaki numaralı klasör, metin (`content.txt`) ve seçilen
+ * görseller/videolar (standart adlarla kopyalanır, bkz. `mediaName`), durumu `pending`. Dönüş: klasör numarası.
  */
 export async function addContent(workflowId: string, name: string, caption: string, files: string[]): Promise<string> {
   const media = files.filter((f) => ['image', 'video'].includes(kindOf(f)))
@@ -167,7 +171,11 @@ export async function addContent(workflowId: string, name: string, caption: stri
   const folder = nextFolder((await readdir(root)).filter(isContentFolder))
   await mkdir(join(root, folder))
   if (caption.trim()) await writeFile(join(root, folder, 'content.txt'), `${caption.trim()}\r\n`)
-  for (const [i, f] of media.entries()) await copyFile(f, join(root, folder, `${i + 1}-${safeName(basename(f))}`))
+  // Standart adlar: image.jpg / video.mp4; aynı türden birden çok dosya image-1, image-2…
+  for (const kind of ['image', 'video'] as const) {
+    const same = media.filter((f) => kindOf(f) === kind)
+    for (const [i, f] of same.entries()) await copyFile(f, join(root, folder, mediaName(kind, i, same.length, extname(f))))
+  }
   await writeFile(join(root, folder, STATUS), statusText('pending', `${stamp()} added in the app`))
   ws.changed()
   return folder

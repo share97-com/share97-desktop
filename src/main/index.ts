@@ -270,6 +270,10 @@ function registerIpc() {
     await accounts.syncAccounts()
   }
   handle('workflows:setActive', (id, on) => flow(id, { active: on === true }))
+  handle('workflows:setSerial', async (on) => {
+    await auth.server('/api/v1/worker/me', { method: 'PATCH', body: { serialRuns: on === true } })
+    await accounts.syncAccounts()
+  })
   handle('workflows:setWorker', (id, workerId) => flow(id, { workerId: workerId === null ? null : str(workerId, 200) }))
   handle('workflows:run', async (id) => {
     // Sunucu, akışın cihazdaki işinin bitmesini bekliyor (agent dakikalarca çalışabilir): olağan 30 sn yetmez.

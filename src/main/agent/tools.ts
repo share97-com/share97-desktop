@@ -11,7 +11,9 @@ import { toUrl } from '../address.ts'
 import { api, apiJson, models } from '../gateway.ts'
 import { pcmToWav, rateOf } from '../audio.ts'
 import { AGENT_SETTLE_MS, type Browsers } from '../browsers.ts'
+import { connectionsState } from '../accounts.ts'
 import * as bookmarks from '../bookmarks.ts'
+import { addContent, listContents, requeueContent } from '../contents.ts'
 import type { ChromeBridge } from '../chrome/bridge.ts'
 import { chromeDriver } from '../chrome/driver.ts'
 import * as passwords from '../passwords.ts'
@@ -1132,6 +1134,57 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     ),
   })
 
+  /** Akış bu cihazda mı (içerik klasörü burada); değilse açıklamalı hata. */
+  const localFlow = (id: string) => {
+    const ov = connectionsState().overview
+    const w = ov?.workflows.find((x) => x.id === id)
+    if (!w) throw new Error('Workflow not found. Call list_workflows.')
+    if (w.workerId !== ov!.me) throw new Error(`The content of "${w.name}" lives on another device; only workflows of this computer can be changed here.`)
+    return w
+  }
+  /** Akışların yerel içerikleri: kullanıcı sohbetten "şu akışa 6 içerik hazırla" diyebilsin. */
+  const workflowTools = [
+    def('list_workflows', "List the user's Share97 workflows: id, name, active, schedule, the accounts it shares to, and whether its content folder is on this computer (here) with how many contents are waiting.", z.object({}), async () => {
+      const s = connectionsState()
+      const ov = s.overview
+      if (!ov) throw new Error('Workflows are not synced yet. Try again in a moment.')
+      return JSON.stringify(
+        await Promise.all(
+          ov.workflows.map(async (w) => {
+            const here = w.workerId === ov.me
+            return { id: w.id, name: w.name, active: w.active, schedule: w.schedule, timezone: w.timezone, accounts: s.accounts.filter((a) => w.accountIds.includes(a.id)).map((a) => `@${a.handle} (${a.platform})`), here, waiting: here ? (await listContents(w.id)).filter((i) => i.status === 'pending').length : null }
+          }),
+        ),
+        null,
+        1,
+      )
+    }),
+    def('list_workflow_contents', "List the content folders (1, 2, 3 ...) of a workflow on this computer: state (pending, publishing, published, failed), note, text and files. Folder 1 is the built-in example and is never shared.", z.object({ workflow_id: z.string() }), async (a) =>
+      JSON.stringify(
+        (await listContents(localFlow(a.workflow_id).id)).map((i) => ({ folder: i.folder, status: i.status, note: i.note, caption: i.caption.slice(0, 600), files: i.media.map((m) => m.file), warnings: i.warnings })),
+        null,
+        1,
+      ),
+    ),
+    def(
+      'add_workflow_content',
+      'Add one content to a workflow on this computer: it becomes the next numbered folder (content.txt + image.jpg / video.mp4 ...) with state pending, and the workflow shares it when its turn comes. files are workspace paths of images or videos (e.g. from generate_image); they are copied. Call once per content. Check list_workflows first: platforms like Instagram, TikTok, YouTube and Pinterest need an image or video.',
+      z.object({ workflow_id: z.string(), caption: z.string().max(5000).describe('The post text, exactly as it should be published.'), files: z.array(z.string()).max(20).optional().describe('Workspace paths of images/videos to upload with the post.') }),
+      async (a) => {
+        const w = localFlow(a.workflow_id)
+        const files = await Promise.all((a.files ?? []).map((f) => ws.existing(f)))
+        const bad = files.find((f) => !['image', 'video'].includes(kindOf(f)))
+        if (bad) throw new Error(`Not an image or video: ${basename(bad)}`)
+        const folder = await addContent(w.id, w.name, a.caption, files)
+        return `Added as content ${folder} of "${w.name}" (pending).`
+      },
+    ),
+    def('requeue_workflow_content', 'Put a failed, stuck or already shared content of a workflow back in line (state pending). Only when the user asks: a content that was shared will be shared again.', z.object({ workflow_id: z.string(), folder: z.string().regex(/^\d{1,9}$/) }), async (a) => {
+      await requeueContent(localFlow(a.workflow_id).id, a.folder)
+      return `Content ${a.folder} is pending again.`
+    }),
+  ]
+
   const fileTools = [
     def(
       'create_report',
@@ -1196,5 +1249,5 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     }),
   ]
 
-  return [...browserTools, ...chromeExtensionTools, ...pageTools, ...chromeTools, ...mediaTools, ...dataTools, ...fileTools]
+  return [...browserTools, ...chromeExtensionTools, ...pageTools, ...chromeTools, ...mediaTools, ...dataTools, ...workflowTools, ...fileTools]
 }

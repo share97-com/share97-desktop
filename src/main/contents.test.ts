@@ -30,7 +30,7 @@ test('klasör kurulunca 1 numaralı içerik baştan sona örnek: metin, görsel,
   await c.ensureContents('wf1', 'Deneme')
   const [one, ...rest] = await c.listContents('wf1')
   assert.equal(rest.length, 0)
-  assert.deepEqual({ folder: one.folder, status: one.status, media: one.media }, { folder: '1', status: 'published', media: [{ file: 'example-image.jpg', kind: 'image' }, { file: 'example-video.mp4', kind: 'video' }] })
+  assert.deepEqual({ folder: one.folder, status: one.status, media: one.media }, { folder: '1', status: 'published', media: [{ file: 'image.jpg', kind: 'image' }, { file: 'video.mp4', kind: 'video' }] })
   assert.ok(one.caption.length > 50 && existsSync(join(root, 'README.txt')))
   // Örnek hiç paylaşılmaz: tekrar açık olsa da.
   assert.equal(await c.takeContent('wf1', { order: 'sequential', repeat: true }), null)
@@ -38,10 +38,10 @@ test('klasör kurulunca 1 numaralı içerik baştan sona örnek: metin, görsel,
 })
 
 test('eski sürümün yalnız metinli örneği tamamlanır; kullanıcının dosyasına dokunulmaz', async () => {
-  rmSync(join(root, '1', 'example-video.mp4'))
+  rmSync(join(root, '1', 'video.mp4'))
   writeFileSync(join(root, '1', 'content.txt'), 'benim metnim')
   await c.ensureContents('wf1', 'Deneme')
-  assert.ok(existsSync(join(root, '1', 'example-video.mp4')))
+  assert.ok(existsSync(join(root, '1', 'video.mp4')))
   assert.equal(readFileSync(join(root, '1', 'content.txt'), 'utf8'), 'benim metnim')
 })
 
@@ -50,7 +50,7 @@ test('içerik üretimi yeni numaralı klasörler yazar; akış sırayla alır, s
   assert.match(calls[0].body.messages![1].content, /benim metnim/, 'örnek içerik modele gidiyor')
   assert.equal(calls.filter((x) => x.path === 'images/generations').length, 2)
   const items = await c.listContents('wf1')
-  assert.deepEqual(items.map((i) => [i.folder, i.status, i.caption, i.media.map((m) => m.file).join()]), [['1', 'published', 'benim metnim', 'example-image.jpg,example-video.mp4'], ['2', 'pending', 'Yeni bir', 'image.png'], ['3', 'pending', 'Yeni iki', 'image.png']])
+  assert.deepEqual(items.map((i) => [i.folder, i.status, i.caption, i.media.map((m) => m.file).join()]), [['1', 'published', 'benim metnim', 'image.jpg,video.mp4'], ['2', 'pending', 'Yeni bir', 'image.png'], ['3', 'pending', 'Yeni iki', 'image.png']])
   await assert.rejects(c.generateContents('wf1', 'Deneme', { from: null, topic: ' ', count: 1, withImage: false }), /topic/)
 
   const first = await c.takeContent('wf1', { order: 'sequential', repeat: false })
@@ -93,8 +93,13 @@ test('uygulamadan içerik ekleme: sıradaki klasör, metin ve kopyalanan medya, 
   writeFileSync(src, 'jpg')
   writeFileSync(join(home, 'not.pdf'), 'pdf')
   const folder = await c.addContent('wf1', 'Deneme', ' merhaba ', [src, join(home, 'not.pdf')])
+  // Standart adlar: tek görsel image.jpg; birden çok görsel image-1, image-2; video ayrı sayılır.
+  writeFileSync(join(home, 'b.PNG'), 'png')
+  writeFileSync(join(home, 'c.mp4'), 'mp4')
+  const many = await c.addContent('wf1', 'Deneme', '', [src, join(home, 'b.PNG'), join(home, 'c.mp4')])
+  assert.deepEqual((await c.listContents('wf1')).find((i) => i.folder === many)!.media.map((m) => m.file), ['image-1.jpg', 'image-2.png', 'video.mp4'])
   const made = (await c.listContents('wf1')).find((i) => i.folder === folder)!
-  assert.deepEqual({ caption: made.caption, status: made.status, media: made.media.map((m) => m.file) }, { caption: 'merhaba', status: 'pending', media: ['1-foto.jpg'] })
+  assert.deepEqual({ caption: made.caption, status: made.status, media: made.media.map((m) => m.file) }, { caption: 'merhaba', status: 'pending', media: ['image.jpg'] })
   await assert.rejects(c.addContent('wf1', 'Deneme', ' ', []), /text/)
 })
 

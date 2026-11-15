@@ -55,6 +55,8 @@ type OverviewFlow = { id: string; name: string; slug: string; active: boolean; w
 export type Overview = {
   /** Bu cihazın Worker kimliği. */
   me: string
+  /** Hesabın ayarı: akışlar sırayla çalışır, bir çalışma bitmeden diğeri başlamaz (varsayılan açık). */
+  serialRuns: boolean
   /** `content`: içerik ayarları (sıra, tekrar; içerik akışın cihazındaki klasörde). `schedule`: zamanlama. `accountIds`: paylaşılan hesaplar. */
   workflows: (OverviewFlow & { timezone: string; content: ContentSettings; lastRunAt: string | null; nodes: string[]; schedule: Schedule | null; accountIds: string[] })[]
   upcoming: { at: number; workflowId: string; name: string }[]
@@ -330,6 +332,8 @@ export type Api = {
   /** Sunucudaki akışlar: web ile aynı kayıt, aynı kurallar. */
   workflows: {
     setActive(id: string, active: boolean): Promise<void>
+    /** Hesabın "akışlar sırayla çalışsın" ayarı. */
+    setSerial(on: boolean): Promise<void>
     /** Akışın Worker hesaplarını yayınlayacak cihaz; `null` hesabın kendi cihazı. */
     setWorker(id: string, workerId: string | null): Promise<void>
     /** Sunucuda şimdi çalıştırır; dönen durum `success` | `failed` | `skipped`. */
