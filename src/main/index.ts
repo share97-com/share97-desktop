@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { app, BrowserWindow, ipcMain, Menu, nativeImage, nativeTheme, net, powerSaveBlocker, protocol, screen, shell, Tray, type IpcMainInvokeEvent } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, powerSaveBlocker, protocol, screen, shell, Tray, type IpcMainInvokeEvent } from 'electron'
 import type { Bounds, ModelCategory } from '../shared/types.ts'
 import * as accounts from './accounts.ts'
 import { Agent } from './agent/index.ts'
@@ -14,7 +14,7 @@ import * as auth from './auth.ts'
 import * as backup from './backup.ts'
 import * as bookmarks from './bookmarks.ts'
 import * as chrome from './chrome/index.ts'
-import { createLocalWorkflow, generateContents, listContents, openContents } from './contents.ts'
+import { addContent, createLocalWorkflow, generateContents, listContents, openContents, requeueContent } from './contents.ts'
 import * as downloads from './downloads.ts'
 import * as extensions from './extensions.ts'
 import * as passwords from './passwords.ts'
@@ -23,7 +23,6 @@ import * as history from './history.ts'
 import { onSettingsChange, settings, update as updateSettings } from './settings.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
 import { checkForUpdates, installUpdate, onUpdate, startUpdater } from './updater.ts'
-import * as workers from './workers.ts'
 import * as ws from './workspace.ts'
 
 /** Pencere çerçevesi: üst şerit renderer'da, sistem düğmeleri overlay. */
@@ -138,8 +137,7 @@ function createWindow() {
     },
     chats: (l) => send('agent:chats', l),
   })
-  startDevice(agent, (list) => send('workers:activity', list))
-  workers.startWorkers(agent, (defs) => send('workers:changed', defs))
+  startDevice(agent, (list) => send('activity:changed', list), showWindow)
   ws.onFilesChange(() => send('files:changed'))
   onSettingsChange((s) => {
     nativeTheme.themeSource = s.theme
@@ -252,7 +250,7 @@ function registerIpc() {
   handle('auth:signOut', () => auth.signOut())
   handle('auth:refresh', () => auth.refresh())
 
-  /* Bağlantılar: sosyal medya hesapları, sunucudaki akışlar, Worker tanımları. */
+  /* Bağlantılar: sosyal medya hesapları, sunucudaki akışlar, cihazın etkinlik günlüğü. */
   handle('connections:state', () => accounts.connectionsState())
   handle('connections:refresh', async (force) => {
     // Ekranlar açılırken çağırıyor: art arda geçişlerde sunucunun hız sınırına takılmasın. "Yenile" düğmesi her zaman okur.
@@ -285,6 +283,24 @@ function registerIpc() {
     if ((c.order !== 'sequential' && c.order !== 'random') || typeof c.repeat !== 'boolean') throw new Error('bad-argument')
     return flow(id, { content: { order: c.order, repeat: c.repeat } })
   })
+  handle('workflows:setSchedule', (id, raw) => {
+    const s = (raw ?? {}) as { mode?: unknown; days?: unknown; times?: unknown; everyHours?: unknown }
+    const days = Array.isArray(s.days) ? s.days.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6) : []
+    const times = Array.isArray(s.times) ? s.times.filter((x): x is string => typeof x === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(x)).slice(0, 12) : []
+    if (s.mode !== 'weekly' && s.mode !== 'interval') throw new Error('bad-argument')
+    return flow(id, { schedule: { mode: s.mode, days: [...new Set(days)], times: [...new Set(times)].sort(), everyHours: Math.min(168, Math.max(1, Math.round(Number(s.everyHours)) || 24)) } })
+  })
+  handle('workflows:setAccounts', (id, ids) => {
+    if (!Array.isArray(ids) || !ids.length || ids.length > 20) throw new Error('bad-argument')
+    return flow(id, { accountIds: ids.map((x) => str(x, 191)) })
+  })
+  handle('workflows:pickMedia', async () => {
+    if (!win) return []
+    const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Media', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'webm'] }] })
+    return r.canceled ? [] : r.filePaths
+  })
+  handle('workflows:addContent', (id, caption, files) => addContent(str(id, 200), flowName(str(id, 200)), str(caption, 20_000), Array.isArray(files) ? files.slice(0, 20).map((f) => str(f, 1000)) : []))
+  handle('workflows:requeue', (id, folder) => requeueContent(str(id, 200), str(folder, 9)))
   handle('workflows:rename', (id, name) => flow(id, { name: str(name, 120) }))
   handle('workflows:remove', async (id) => {
     await auth.server(`/api/v1/worker/workflows/${encodeURIComponent(str(id, 200))}`, { method: 'DELETE' })
@@ -300,11 +316,7 @@ function registerIpc() {
   handle('workflows:contents', (id) => listContents(str(id, 200)))
   handle('workflows:openContents', (id) => openContents(str(id, 200), flowName(str(id, 200))))
 
-  handle('workers:list', () => workers.workerDefs())
-  handle('workers:save', (id, input) => workers.saveWorker(id === null ? null : str(id, 200), input))
-  handle('workers:remove', (id) => workers.removeWorker(str(id, 200)))
-  handle('workers:run', (id) => void workers.runWorker(str(id, 200)).catch(() => {}))
-  handle('workers:activity', () => deviceActivity())
+  handle('activity:list', () => deviceActivity())
 
   handle('site:open', (path) => openSite(str(path, 500)))
 
@@ -516,7 +528,6 @@ else {
     auth.onAuthChange((s) => {
       if (s.status !== 'signed-in' || accounts.lastSync() !== 0) return
       pollNow()
-      void workers.syncWorkers()
     })
     await auth.restore()
   })

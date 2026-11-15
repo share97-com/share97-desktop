@@ -46,48 +46,31 @@ export type SocialAccount = {
 }
 
 type OverviewAccount = { id: string; platform: string; handle: string; status: string; via: string; seenAt: string | null }
+/** Akışın zamanlaması (sunucuda tetikleyici düğümünün verisi): haftalık günler (0 = pazar) + saatler ya da her N saatte bir. */
+export type Schedule = { mode: 'weekly' | 'interval'; days: number[]; times: string[]; everyHours: number }
+
 type OverviewFlow = { id: string; name: string; slug: string; active: boolean; workerId: string | null }
 
 /** Sunucudaki akışlar, sıradaki yuvalar, son çalışmalar ve bütün cihazlar (`GET /api/v1/worker/overview`). */
 export type Overview = {
   /** Bu cihazın Worker kimliği. */
   me: string
-  /** `content`: akışın içerik ayarları — sıra ve tekrar. İçerik akışın cihazındaki klasörde. */
-  workflows: (OverviewFlow & { timezone: string; content: ContentSettings; lastRunAt: string | null; queued: number; nodes: string[] })[]
+  /** `content`: içerik ayarları (sıra, tekrar; içerik akışın cihazındaki klasörde). `schedule`: zamanlama. `accountIds`: paylaşılan hesaplar. */
+  workflows: (OverviewFlow & { timezone: string; content: ContentSettings; lastRunAt: string | null; nodes: string[]; schedule: Schedule | null; accountIds: string[] })[]
   upcoming: { at: number; workflowId: string; name: string }[]
   runs: { id: string; status: 'running' | 'success' | 'failed' | 'skipped'; error: string | null; startedAt: string; workflow: string; handle: string | null; permalink: string | null }[]
-  workers: { id: string; name: string; hint: string; createdAt: string; lastUsedAt: string | null; online: boolean; accounts: OverviewAccount[]; workflows: OverviewFlow[]; tasks: { id: string; name: string; lastRunAt: string | null; lastOk: boolean | null }[] }[]
+  workers: { id: string; name: string; hint: string; createdAt: string; lastUsedAt: string | null; online: boolean; accounts: OverviewAccount[]; workflows: OverviewFlow[] }[]
   server: { accounts: OverviewAccount[]; workflows: OverviewFlow[] }
   unassigned: OverviewAccount[]
 }
 
 export type ConnectionsState = { accounts: SocialAccount[]; overview: Overview | null; error: string | null; syncedAt: number }
 
-/** Başıboş işlerin günlüğü (sunucu işleri, Worker çalışmaları); `chatId`: işin sohbet süreci. */
+/** Başıboş işlerin (sunucudan gelen akış işleri) günlüğü; `chatId`: işin sohbet süreci. */
 export type ActivityEntry = { at: number; text: string; tone: 'info' | 'ok' | 'error'; chatId?: string }
 
 /** Başıboş bir görevin (`Agent.task`) sonucu. `expired`: hesabın oturumu düşmüş. */
 export type TaskResult = { ok: boolean; summary: string; permalink?: string; data?: string; expired?: boolean }
-
-export type WorkerRun = { at: number; ms: number; ok: boolean; summary: string; chatId: string | null }
-
-/**
- * **Worker tanımı**: bu cihazda **elle** çalıştırılan agent işi. Talimat, kullanacağı hesaplar ve model
- * (boşsa varsayılan sohbet modeli). Zamanlama yok: zamanı gelince çalışan iş bir akıştır. Her çalışma
- * bir sohbet süreci başlatır.
- */
-export type WorkerDef = {
-  id: string
-  name: string
-  prompt: string
-  accountIds: string[]
-  model: string | null
-  createdAt: number
-  lastRunAt: number | null
-  runs: WorkerRun[]
-  running: boolean
-}
-export type WorkerInput = Pick<WorkerDef, 'name' | 'prompt' | 'accountIds' | 'model'>
 
 /* ---------------- Tarayıcılar: her biri tek çerez deposu, altında sekmeler ---------------- */
 
@@ -289,7 +272,7 @@ export type Chat = {
   queued: QueuedMessage[]
   /** Sohbette toplanan veri sayısı (`DataItem`; içerikleri ayrı istenir, sohbetle taşınmıyor). */
   dataCount: number
-  /** Başıboş görev (Worker tanımı ya da sunucudan gelen akış işi): onaylar kendiliğinden veriliyor. */
+  /** Başıboş görev (sunucudan gelen akış işi): onaylar kendiliğinden veriliyor. */
   task?: boolean
 }
 
@@ -353,6 +336,15 @@ export type Api = {
     run(id: string): Promise<{ status: string; error: string | null }>
     /** İçerik ayarları: paylaşım sırası ve tekrar. */
     setContent(id: string, content: ContentSettings): Promise<void>
+    /** Zamanlama ve paylaşılacak hesaplar (en az bir hesap): sunucu grafa yazar, düzenleyici gerekmez. */
+    setSchedule(id: string, schedule: Schedule): Promise<void>
+    setAccounts(id: string, accountIds: string[]): Promise<void>
+    /** Dosya seçme penceresi (görsel/video); dönüş: seçilen dosyaların yolları. */
+    pickMedia(): Promise<string[]>
+    /** Yeni içerik klasörü: metin + seçilen dosyalar, durumu `pending`; dönüş: klasör numarası. */
+    addContent(id: string, caption: string, files: string[]): Promise<string>
+    /** İçeriği yeniden sıraya alır (`pending`). */
+    requeue(id: string, folder: string): Promise<void>
     rename(id: string, name: string): Promise<void>
     /** Akışı sunucudan siler. Cihazdaki içerik klasörü durur (kullanıcının dosyaları). */
     remove(id: string): Promise<void>
@@ -364,14 +356,9 @@ export type Api = {
     /** Bu cihaza atanmış yeni bir taslak akış (klasörü örnek içerikle kurulur). */
     createLocal(name: string): Promise<void>
   }
-  workers: {
-    list(): Promise<WorkerDef[]>
-    save(id: string | null, input: WorkerInput): Promise<string>
-    remove(id: string): Promise<void>
-    run(id: string): Promise<void>
-    activity(): Promise<ActivityEntry[]>
-    onChange(cb: (defs: WorkerDef[]) => void): () => void
-    onActivity(cb: (list: ActivityEntry[]) => void): () => void
+  activity: {
+    list(): Promise<ActivityEntry[]>
+    onChange(cb: (list: ActivityEntry[]) => void): () => void
   }
   /** Share97 sitesini (faturalama, akış düzenleyicisi...) bu cihazın oturumuyla ayrı pencerede açar. */
   site: {

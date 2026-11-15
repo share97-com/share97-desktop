@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ActivityEntry, Bookmark, BrowsersState, ConnectionsState, WorkerDef, ChatSummary, ChromeState, Download, ExtensionInfo, FileEntry, SavedLogin, ModelCategory, ModelInfo, Settings, Thumbnails, UpdateState } from '../../shared/types.ts'
+import type { ActivityEntry, Bookmark, BrowsersState, ConnectionsState, ChatSummary, ChromeState, Download, ExtensionInfo, FileEntry, SavedLogin, ModelCategory, ModelInfo, Settings, Thumbnails, UpdateState } from '../../shared/types.ts'
 
 /** Main süreçteki durumun renderer'daki yansıması: ilk değer + değişiklik aboneliği. */
 
@@ -148,20 +148,11 @@ export function useConnections() {
   return s
 }
 
-export function useWorkers() {
-  const [list, set] = useState<WorkerDef[]>([])
-  useEffect(() => {
-    void api().workers.list().then(set)
-    return api().workers.onChange(set)
-  }, [])
-  return list
-}
-
 export function useActivity() {
   const [list, set] = useState<ActivityEntry[]>([])
   useEffect(() => {
-    void api().workers.activity().then(set)
-    return api().workers.onActivity(set)
+    void api().activity.list().then(set)
+    return api().activity.onChange(set)
   }, [])
   return list
 }

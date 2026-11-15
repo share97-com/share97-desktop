@@ -6,7 +6,7 @@ import type { BackupEntry } from '../shared/types.ts'
 import { dataPath, readJson } from './store.ts'
 
 /**
- * **Yedekler.** Bütün ayarlar (model, tarayıcılar, hesaplar, Worker'lar, yer imleri, geçmiş, agent hafızası,
+ * **Yedekler.** Bütün ayarlar (model, tarayıcılar, hesaplar, yer imleri, geçmiş, agent hafızası,
  * şifreli parola kasası) ve her uygulama tarayıcısının çerezleri tek `.share97` dosyasında: brotli ile
  * sıkıştırılmış JSON. Dosyalar Belgeler\Share97\Yedekler altında: uygulama kaldırılsa da kalıyor.
  * Parola kasası ve cihaz anahtarı zaten Windows DPAPI ile şifreli; yalnız aynı Windows kullanıcısında açılır.
@@ -16,7 +16,7 @@ import { dataPath, readJson } from './store.ts'
 const FORMAT = 'share97-backup'
 const EXT = '.share97'
 /** userData'daki ayar dosyaları. Sohbetler ve önizlemeler yok: ayar değil, büyük. */
-const FILES = ['settings.json', 'browsers.json', 'accounts.json', 'auto.json', 'bookmarks.json', 'extensions.json', 'workers.json', 'power.json', 'chrome.json', 'agent-memory.json', 'window.json', 'history.jsonl', 'passwords.bin', 'share97-key.bin']
+const FILES = ['settings.json', 'browsers.json', 'accounts.json', 'auto.json', 'bookmarks.json', 'extensions.json', 'power.json', 'chrome.json', 'agent-memory.json', 'window.json', 'history.jsonl', 'passwords.bin', 'share97-key.bin']
 const SITE = 'persist:share97-site'
 
 type Cookie = Electron.Cookie

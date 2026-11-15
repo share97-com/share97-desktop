@@ -192,6 +192,9 @@ function upsertLocal(l: Local) {
   persist()
 }
 
+/** İş başlamadan hesabın uygulama tarayıcısı sekmeleriyle açılır (ekrana getirilmeden); Chrome zaten açık. */
+export const openForJob = (l: Local) => void (l.browserId && browsers.open(l.browserId))
+
 /** Bekleyen "hesap ekle" girişini iptal eder (tarayıcı kapanır). */
 export function cancelAdd() {
   for (const stop of [...waiting.values()]) stop()

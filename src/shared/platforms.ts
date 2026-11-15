@@ -64,3 +64,11 @@ export function jobPrompt(o: { platform: string; handle: string; browserId: stri
     "When done, call finish_task: success, a one-line summary, and the post's address in permalink if the page shows one.",
   ].join('\n')
 }
+
+/** Akış işi hesabın bağlantıda tanımlı tarayıcısına kilitli (agent `Ctx.only`): araç başka tarayıcı kullanamaz, yenisini açamaz. Sorun yoksa `null`. */
+export function lockProblem(only: string | undefined, name: string, args: unknown): string | null {
+  if (!only) return null
+  if (name === 'create_browser') return `This task may only use browser_id ${only} (the account's own signed-in browser). Do not create another browser.`
+  const id = (args as { browser_id?: unknown } | null)?.browser_id
+  return typeof id === 'string' && id !== only ? `This task may only use browser_id ${only} (the account's own signed-in browser), not ${id}.` : null
+}

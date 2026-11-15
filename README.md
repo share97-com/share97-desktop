@@ -15,7 +15,6 @@ Most social media schedulers post only through official APIs, which leaves out p
 - **AI content generation**: when the queue runs dry, AI writes the caption and image for the next post, in up to 15 languages.
 - **Multiple accounts and profiles**: add several profiles per platform, group them, and run each in its own isolated browser with its own cookies.
 - **Chrome extension**: let the agent work in tabs of your everyday Google Chrome, where you are already signed in.
-- **Scheduled workers**: give the agent an instruction, the accounts and a schedule (manual, every N minutes, or daily at set times); every run becomes a chat you can open.
 - **Runs in the background**: keeps working in the tray, can start with Windows, and can keep the computer awake for scheduled posts.
 - **Backups**: one click saves every setting, browser and sign-in (cookies) into a compressed `.share97` file in Documents\Share97\Yedekler. Update it any time, show it in its folder, or restore it after a reinstall or on a new computer.
 - **Every run on record**: each job is logged with its result and the post link, on this computer and on share97.com.

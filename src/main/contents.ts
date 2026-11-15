@@ -1,14 +1,14 @@
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { shell } from 'electron'
+import { basename, join } from 'node:path'
+import { app, shell } from 'electron'
 import type { Overview } from '../shared/types.ts'
-import { EXAMPLE_NOTE, generationMessages, isContentFolder, isExample, isWorkflowId, MAX_GENERATE, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type ContentSettings, type ContentStatus, type GenerateInput, type LocalContent, type LocalMedia } from '../shared/contents.ts'
+import { contentWarnings, EXAMPLE_NOTE, MAX_CAPTION, MAX_MEDIA, resultNote, stalePublishing, generationMessages, isContentFolder, isExample, isWorkflowId, MAX_GENERATE, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type ContentSettings, type ContentStatus, type GenerateInput, type LocalContent, type LocalMedia } from '../shared/contents.ts'
 import { server } from './auth.ts'
 import { IMAGE_MODEL } from './auto.ts'
 import { apiJson } from './gateway.ts'
 import { DEFAULT_MODEL, settings } from './settings.ts'
-import { inside, kindOf } from './paths.ts'
+import { inside, kindOf, safeName } from './paths.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
 import * as ws from './workspace.ts'
 
@@ -91,15 +91,17 @@ export async function ensureContents(workflowId: string, name: string) {
 
 async function readContent(workflowId: string, folder: string): Promise<LocalContent> {
   const root = dir(workflowId, folder)
-  const files = (await readdir(root, { withFileTypes: true })).filter((e) => e.isFile()).map((e) => e.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
-  const text = files.find((f) => f.toLowerCase() === 'content.txt') ?? files.find((f) => /\.txt$/i.test(f) && f.toLowerCase() !== STATUS)
+  const entries = await readdir(root, { withFileTypes: true })
+  const files = entries.filter((e) => e.isFile()).map((e) => e.name).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  const texts = files.filter((f) => /\.txt$/i.test(f) && f.toLowerCase() !== STATUS)
+  const text = texts.find((f) => f.toLowerCase() === 'content.txt') ?? texts[0]
   const caption = text ? (await readFile(join(root, text), 'utf8')).replace(/^﻿/, '').trim() : ''
   const media = files.flatMap((file): LocalMedia[] => {
     const kind = kindOf(file)
     return kind === 'image' || kind === 'video' ? [{ file, kind }] : []
   })
   const status = files.includes(STATUS) ? parseStatus(await readFile(join(root, STATUS), 'utf8')) : parseStatus('')
-  return { folder, caption, media, ...status }
+  return { folder, caption, media, ...status, warnings: contentWarnings({ caption: caption.length, media: media.length, texts: texts.length, dirs: entries.filter((e) => e.isDirectory()).length }) }
 }
 
 /** Akışın içerikleri, klasör numarasına göre. Klasör yoksa boş. */
@@ -131,14 +133,44 @@ export async function takeContent(workflowId: string, o: Pick<ContentSettings, '
       continue
     }
     await setContentStatus(workflowId, pick.folder, 'publishing')
-    return { folder: pick.folder, caption: pick.caption.slice(0, 5000), media: pick.media.slice(0, 20) }
+    return { folder: pick.folder, caption: pick.caption.slice(0, MAX_CAPTION), media: pick.media.slice(0, MAX_MEDIA) }
   }
 }
 
-/** Yayın işinin sonucu `status.txt`e. Başka bir hesapta paylaşılmış içerik sonraki hatayla `failed`e düşmüyor. */
-export async function finishContent(workflowId: string, folder: string, ok: boolean, note: string) {
-  if (!ok && (await readContent(workflowId, folder).catch(() => null))?.status === 'published') return
-  await setContentStatus(workflowId, folder, ok ? 'published' : 'failed', note).catch(() => {})
+/** Bir hesabın yayın sonucu `status.txt`e; birden çok hesabın sonuçları aynı notta birikir (bkz. `resultNote`). */
+export async function finishContent(workflowId: string, folder: string, handle: string, ok: boolean, detail: string) {
+  const prev = await readContent(workflowId, folder).catch(() => null)
+  if (!prev) return
+  const next = resultNote(prev, handle, ok, detail)
+  await setContentStatus(workflowId, folder, next.status, next.note).catch(() => {})
+}
+
+/** İçeriği yeniden sıraya alır (`pending`): düşen, takılan ya da yeniden paylaşılmak istenen içerik. Örnek alınmaz. */
+export async function requeueContent(workflowId: string, folder: string) {
+  if (isExample(await readContent(workflowId, folder))) throw new Error('The example content is never shared. Copy it into a new folder instead.')
+  await setContentStatus(workflowId, folder, 'pending', 'queued again')
+}
+
+/** `publishing`de takılan içerikler `failed`e çekilir: kullanıcı hesabı kontrol edip yeniden sıraya alır (kendiliğinden yeniden paylaşmak çift gönderi riski). */
+async function recoverStale(workflowId: string) {
+  for (const i of await listContents(workflowId)) if (stalePublishing(i)) await setContentStatus(workflowId, i.folder, 'failed', 'interrupted before the result was known: check the account, then queue it again')
+}
+
+/**
+ * Uygulamadan yeni içerik: sıradaki numaralı klasör, metin (`content.txt`) ve seçilen görseller/videolar
+ * (kopyalanır), durumu `pending`. Dönüş: klasör numarası.
+ */
+export async function addContent(workflowId: string, name: string, caption: string, files: string[]): Promise<string> {
+  const media = files.filter((f) => ['image', 'video'].includes(kindOf(f)))
+  if (!caption.trim() && !media.length) throw new Error('Write a text or choose an image or video.')
+  const root = await ensureContents(workflowId, name)
+  const folder = nextFolder((await readdir(root)).filter(isContentFolder))
+  await mkdir(join(root, folder))
+  if (caption.trim()) await writeFile(join(root, folder, 'content.txt'), `${caption.trim()}\r\n`)
+  for (const [i, f] of media.entries()) await copyFile(f, join(root, folder, `${i + 1}-${safeName(basename(f))}`))
+  await writeFile(join(root, folder, STATUS), statusText('pending', `${stamp()} added in the app`))
+  ws.changed()
+  return folder
 }
 
 /** Yayın işinin `local:` adresli medyası → çalışma klasörüne göre dosya yolları (agent `upload_files` ile yüklüyor). */
@@ -196,7 +228,7 @@ export const openContents = async (workflowId: string, name: string) => void (aw
 
 /* ---------------- Eşitleme ---------------- */
 
-const EXAMPLE_NAME = 'Example workflow'
+const exampleName = () => (app.getLocale().toLowerCase().startsWith('tr') ? 'Örnek akış' : 'Example workflow')
 
 /** Sunucuda bu cihaza atanmış, durdurulmuş bir taslak akış açar; içerik klasörü bir sonraki eşitlemede kurulur. */
 export const createLocalWorkflow = (name: string) => server('/api/v1/worker/workflows', { body: { name, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } })
@@ -204,16 +236,20 @@ const file = () => dataPath('workflows.json')
 
 /**
  * Sunucudaki akışlarla bu cihazın klasörlerini eşitler (her hesap eşitlemesinde ve "Eşitle" düğmesiyle):
- * bu cihaza atanmış, kuyruktan içerik alan her akışın klasörü kurulur. Hesapta hiç akış yoksa bir kez
+ * bu cihaza atanmış, kuyruktan içerik alan her akışın klasörü kurulur, `publishing`de takılan içerikleri `failed`e çekilir. Hesapta hiç akış yoksa bir kez
  * **örnek akış** açılır (durdurulmuş taslak, bu cihaza atanmış). Dönüş: örnek akış açıldı, genel bakış
  * yeniden okunmalı.
  */
 export async function syncContents(ov: Overview): Promise<boolean> {
-  for (const w of ov.workflows) if (w.workerId === ov.me && w.nodes.includes('queue')) await ensureContents(w.id, w.name).catch((e) => console.error('[contents]', (e as Error).message))
+  for (const w of ov.workflows)
+    if (w.workerId === ov.me && w.nodes.includes('queue'))
+      await ensureContents(w.id, w.name)
+        .then(() => recoverStale(w.id))
+        .catch((e) => console.error('[contents]', (e as Error).message))
   if (ov.workflows.length || readJson<{ example?: boolean }>(file(), {}).example) return false
   // Bir kez denenir: paket sınırı doluysa ya da kullanıcı örneği sildiyse yeniden açılmaz.
   writeJson(file(), { example: true })
-  return createLocalWorkflow(EXAMPLE_NAME).then(
+  return createLocalWorkflow(exampleName()).then(
     () => true,
     () => false,
   )

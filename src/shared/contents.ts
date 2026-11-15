@@ -16,7 +16,48 @@ export type ContentSettings = { order: 'sequential' | 'random'; repeat: boolean 
 
 export type LocalMedia = { file: string; kind: 'image' | 'video' }
 /** `note`: `status.txt`in ikinci satırı (tarih, gönderinin adresi ya da hata). */
-export type LocalContent = { folder: string; caption: string; media: LocalMedia[]; status: ContentStatus; note: string }
+export type LocalContent = { folder: string; caption: string; media: LocalMedia[]; status: ContentStatus; note: string; warnings: ContentWarning[] }
+
+/** Akışa giden metin ve dosya sayısının üst sınırı; fazlası kesilir (kullanıcı `warnings` ile uyarılır). */
+export const MAX_CAPTION = 5000
+export const MAX_MEDIA = 20
+
+/**
+ * Klasörde sessizce yok sayılacak ya da kesilecek şeyler: metin `MAX_CAPTION`den uzun, `MAX_MEDIA`den çok
+ * dosya, birden çok metin dosyası (yalnız biri okunur), alt klasör (okunmaz).
+ */
+export type ContentWarning = 'long-text' | 'many-files' | 'many-texts' | 'subfolders'
+export const contentWarnings = (o: { caption: number; media: number; texts: number; dirs: number }): ContentWarning[] => [
+  ...(o.caption > MAX_CAPTION ? (['long-text'] as const) : []),
+  ...(o.media > MAX_MEDIA ? (['many-files'] as const) : []),
+  ...(o.texts > 1 ? (['many-texts'] as const) : []),
+  ...(o.dirs > 0 ? (['subfolders'] as const) : []),
+]
+
+const STAMP = /^\d{4}-\d\d-\d\d \d\d:\d\d ?/
+
+/**
+ * Bir hesabın yayın sonucu `status.txt`e. Akış birden çok hesaba paylaşıyorsa sonuçlar aynı nota eklenir
+ * (`@a ok …; @b failed: …`): bir hesapta paylaşılan içerik `published` kalır (yeniden paylaşmak o hesapta
+ * çift gönderi olurdu), düşen hesap notta görünür (`isPartial`). `prev`: dosyanın şimdiki hâli; `publishing`
+ * ise bu çalışmanın ilk sonucudur.
+ */
+export function resultNote(prev: { status: ContentStatus; note: string }, handle: string, ok: boolean, detail: string): { status: ContentStatus; note: string } {
+  const piece = `@${handle} ${ok ? `ok ${detail}`.trim() : `failed: ${detail}`}`
+  const before = prev.status === 'published' || prev.status === 'failed' ? prev.note.replace(STAMP, '') : ''
+  return { status: ok || prev.status === 'published' ? 'published' : 'failed', note: before.includes('@') ? `${before}; ${piece}` : piece }
+}
+/** Paylaşıldı ama en az bir hesapta düştü. */
+export const isPartial = (i: Pick<LocalContent, 'status' | 'note'>) => i.status === 'published' && /@\S+ failed:/.test(i.note)
+
+/** `publishing`de bu kadar kalan içerik takılmıştır (uygulama iş sırasında kapandı ya da akış yayına ulaşmadı). */
+export const STALE_PUBLISHING_MS = 90 * 60_000
+/** Notun başındaki damga (UTC, `YYYY-MM-DD HH:MM`) `STALE_PUBLISHING_MS`den eskiyse takılmış sayılır; damga yoksa da. */
+export function stalePublishing(i: Pick<LocalContent, 'status' | 'note'>, now = Date.now()) {
+  if (i.status !== 'publishing') return false
+  const at = STAMP.test(i.note) ? Date.parse(`${i.note.slice(0, 16).replace(' ', 'T')}Z`) : NaN
+  return !(now - at < STALE_PUBLISHING_MS)
+}
 
 /** Örnek içeriğin (`1` numaralı klasör) `status.txt` notu. Örnek `published` durur ve hiç paylaşılmaz: tekrar açıkken de. */
 export const EXAMPLE_NOTE = 'example content'

@@ -22,6 +22,7 @@ import { FORMATS, render, type Report } from '../reports.ts'
 import * as ws from '../workspace.ts'
 import { deleteLesson, saveLesson } from './lesson-store.ts'
 import { MAX_LESSON } from './lessons.ts'
+import { lockProblem } from '../../shared/platforms.ts'
 import type { ChatData } from './memory.ts'
 import * as page from './page.ts'
 import type { Driver } from './page.ts'
@@ -45,6 +46,8 @@ export type Ctx = {
   vision(question: string, dataUrl: string): Promise<string>
   /** Sohbetin kalıcı verisi: aramalar, sayfalar, raporların yapısı (memory.ts). */
   data: ChatData
+  /** Başıboş görev tek bir tarayıcıya kilitli (hesabın bağlantıda tanımlı tarayıcısı): başka tarayıcı kullanılamaz, yenisi açılamaz. */
+  only?: string
 }
 
 /** Agent'ın arama yaptığı uygulama tarayıcısı; yoksa arka planda açılıyor. */
@@ -103,7 +106,7 @@ export async function fileText(full: string): Promise<string> {
 }
 
 /** Her araç hata fırlatmak yerine metin döndürüyor: model hatayı görüp başka yol deniyor. */
-function def<S extends z.ZodObject>(name: string, description: string, schema: S, fn: (args: z.infer<S>) => Promise<string>) {
+function plainDef<S extends z.ZodObject>(name: string, description: string, schema: S, fn: (args: z.infer<S>) => Promise<string>) {
   return tool(
     async (args: z.infer<S>) => {
       try {
@@ -147,6 +150,13 @@ function chromeTabId(c: ChromeInstance, tab?: string): number {
 }
 
 export function makeTools(ctx: Ctx) {
+  // Görev tek tarayıcıya kilitliyse (`ctx.only`) her araç çağrısı ona göre denetlenir.
+  const def: typeof plainDef = (name, description, schema, fn) =>
+    plainDef(name, description, schema, (args) => {
+      const problem = lockProblem(ctx.only, name, args)
+      if (problem) throw new Error(problem)
+      return fn(args)
+    })
   const b = ctx.browsers
   const cb = ctx.chrome
   /** Bu sohbette alınmış indirmeler (ana agent ve alt agent'lar aynı kümeyi paylaşıyor). */

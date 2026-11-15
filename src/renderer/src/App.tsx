@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Account, AuthState, Shortcut } from '../../shared/types.ts'
-import { ArchiveRestore, Cable, Coins, MessageSquare, Puzzle, Settings as Gear, Workflow, Zap } from 'lucide-react'
+import { ArchiveRestore, Cable, Coins, MessageSquare, Puzzle, Settings as Gear, Workflow } from 'lucide-react'
 import { Backups } from './Backups.tsx'
 import { BrowserBar, BrowserStrip } from './Bars.tsx'
 import { Billing, creditText, planLabel } from './Billing.tsx'
@@ -8,12 +8,11 @@ import { ChromeView } from './Chrome.tsx'
 import { Connect } from './Connect.tsx'
 import { Connections } from './Connections.tsx'
 import { Home } from './Home.tsx'
-import { api, useBrowsers, useChats, useChrome, useThumbnails, useWorkers } from './hooks.ts'
+import { api, useBrowsers, useChats, useChrome, useThumbnails } from './hooks.ts'
 import { t } from './i18n.ts'
 import { Settings, type SectionId } from './Settings.tsx'
 import { Toaster } from './Toast.tsx'
 import { BookmarksBar, FindBar, Toolbar } from './Toolbar.tsx'
-import { Workers } from './Workers.tsx'
 import { Workflows } from './Workflows.tsx'
 
 export function App() {
@@ -31,21 +30,19 @@ export function App() {
   )
 }
 
-export type View = 'home' | 'connections' | 'workflows' | 'workers' | 'chrome' | 'backup' | 'billing' | 'settings'
+export type View = 'home' | 'connections' | 'workflows' | 'chrome' | 'backup' | 'billing' | 'settings'
 
 /**
  * Kenar çubuğu: uygulamanın ekranları. Sohbet (agent), Bağlantılar (sosyal hesaplar), Akışlar
- * (sunucuyla eşit), Worker'lar (bu cihazdaki zamanlanmış işler), Chrome (eklenti), altta paket/kredi
+ * (sunucuyla eşit; cihazlar ve etkinlik de orada), Chrome (eklenti), altta paket/kredi
  * ve ayarlar. Çalışan ya da onay bekleyen iş varsa ilgili satırda işaret.
  */
 function Sidebar({ account, view, onView }: { account: Account; view: View; onView: (v: View) => void }) {
   const chats = useChats()
   const chrome = useChrome()
-  const workers = useWorkers()
   const waiting = chats.filter((c) => c.pending).length
   const badge: Partial<Record<View, React.ReactNode>> = {
     home: waiting ? <span className="readout !text-warn" aria-label={t.approvalWaiting}>{waiting} {t.waitingShort}</span> : chats.some((c) => c.running) ? <span className="readout !text-ok">{t.liveShort}</span> : null,
-    workers: workers.some((w) => w.running) ? <span className="readout !text-ok">{t.liveShort}</span> : null,
     chrome: chrome?.instances.some((x) => x.status === 'pending') ? <span className="readout !text-warn">{t.waitingShort}</span> : null,
   }
   const item = (v: View, Icon: typeof Cable, label: string) => (
@@ -66,7 +63,6 @@ function Sidebar({ account, view, onView }: { account: Account; view: View; onVi
       {item('home', MessageSquare, t.nav.chat)}
       {item('connections', Cable, t.nav.connections)}
       {item('workflows', Workflow, t.nav.workflows)}
-      {item('workers', Zap, t.nav.workers)}
       {item('chrome', Puzzle, t.nav.chrome)}
       <div className="my-2 border-t border-line" />
       {item('backup', ArchiveRestore, t.nav.backup)}
@@ -183,8 +179,7 @@ function Shell({ account }: { account: Account }) {
         <div ref={area} className="relative min-h-0 min-w-0 flex-1">
           {!active && view === 'home' && <Home state={state} thumbs={thumbs} focus={focus} />}
           {!active && view === 'connections' && <Connections account={account} />}
-          {!active && view === 'workflows' && <Workflows />}
-          {!active && view === 'workers' && <Workers onOpenChat={openChat} />}
+          {!active && view === 'workflows' && <Workflows onOpenChat={openChat} />}
           {!active && view === 'chrome' && <ChromeView />}
           {!active && view === 'backup' && <Backups />}
           {!active && view === 'billing' && <Billing account={account} />}

@@ -32,7 +32,7 @@ import { CHROME_PREFIX, makeTools, type Ctx } from './tools.ts'
  *    bilgi mesajların sonunda, eski sayfa görüntüleri sıkıştırılıyor, düşen model çağrısı yedek modelle deneniyor.
  *  - Kalıcı hafıza (`lessons.ts`, `lesson-store.ts`): sitelerde öğrenilen yollar ve kullanıcı tercihleri sonraki sohbetlerde de isteme giriyor.
  *  - Tarayıcı, not, geçmiş, medya ve dosya araçları `tools.ts`te.
- *  - Görev (`task`): Worker tanımları ve sunucudan gelen akış işleri kullanıcı başında olmadan aynı
+ *  - Görev (`task`): sunucudan gelen akış işleri kullanıcı başında olmadan aynı
  *    sohbet sürecinde çalışıyor; onaylar kendiliğinden veriliyor, sonuç `finish_task` ile bildiriliyor.
  *  - Sohbet verisi (`memory.ts`): her araç sonucu, Google araması ve rapor yapısı kalıcı; agent
  *    her model adımında dizinini görüyor, `search_chat_data` ile LangChain vektör aramasıyla buluyor.
@@ -245,6 +245,8 @@ export class Agent {
   private beats = new Map<string, number>()
   /** Görev sohbetlerinin `finish_task` ile bildirdiği sonuçlar. */
   private results = new Map<string, TaskResult>()
+  /** Görev sohbeti → kullanabileceği tek tarayıcı (`Ctx.only`). */
+  private locks = new Map<string, string>()
 
   constructor(
     private browsers: Browsers,
@@ -396,18 +398,21 @@ export class Agent {
   }
 
   /**
-   * **Görev**: kullanıcı başında olmadan çalışan sohbet süreci (Worker tanımı ya da sunucudan gelen
+   * **Görev**: kullanıcı başında olmadan çalışan sohbet süreci (sunucudan gelen
    * akış işi). Yeni bir sohbet açılıyor, bitene kadar bekleniyor; sohbet listede kalıyor ki kullanıcı
-   * ne yapıldığını adım adım görebilsin.
+   * ne yapıldığını adım adım görebilsin. `browserId`: görev yalnız bu tarayıcıda çalışabilir (hesabın
+   * bağlantıda tanımlı, çerezleri taşıyan tarayıcısı).
    */
-  async task(title: string, prompt: string, model?: string | null): Promise<TaskResult & { chatId: string }> {
+  async task(title: string, prompt: string, model?: string | null, browserId?: string): Promise<TaskResult & { chatId: string }> {
     const id = this.create()
+    if (browserId) this.locks.set(id, browserId)
     const r = this.records.get(id)!
     r.chat.title = title.replace(/\s+/g, ' ').trim().slice(0, 120)
     r.chat.task = true
     await this.run(r, prompt, model ?? undefined)
     const reported = this.results.get(id)
     this.results.delete(id)
+    this.locks.delete(id)
     if (reported) return { chatId: id, ...reported }
     const last = r.chat.messages.at(-1)
     const text = last?.parts.filter((p): p is Extract<Part, { type: 'text' }> => p.type === 'text').map((p) => p.text).join('\n').trim()
@@ -473,7 +478,7 @@ export class Agent {
       chat.model = modelId
       const data = this.data(chat.id)
       data.embeddings = embeddings()
-      const ctx = this.context(turn, controller.signal, modelId, data)
+      const ctx = { ...this.context(turn, controller.signal, modelId, data), only: this.locks.get(chat.id) }
       const tools = [...makeTools(ctx), this.subagentTool(turn, ctx, modelId), ...(chat.task ? [this.finishTool(chat.id)] : [])]
       const llm = await chatModel(modelId)
       // Ucuz varsayılan model: özetleme ve asıl model düşerse yedek.

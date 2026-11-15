@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { generationMessages, isContentFolder, isWorkflowId, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type LocalContent } from './contents.ts'
+import { contentWarnings, isPartial, resultNote, stalePublishing, generationMessages, isContentFolder, isWorkflowId, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type LocalContent } from './contents.ts'
 
-const item = (folder: string, status: LocalContent['status']): LocalContent => ({ folder, caption: folder, media: [], status, note: '' })
+const item = (folder: string, status: LocalContent['status']): LocalContent => ({ folder, caption: folder, media: [], status, note: '', warnings: [] })
 
 test('status.txt: ilk satır durum, gerisi not; boş ya da tanınmayan bekliyor sayılır', () => {
   assert.deepEqual(parseStatus('published\n2026-11-15 https://x.com/a/1\n'), { status: 'published', note: '2026-11-15 https://x.com/a/1' })
@@ -47,4 +47,28 @@ test('içerik üretimi: özgünlük talimatı, yanıtın ayrıştırılması ve 
   assert.deepEqual(parseGenerated('{"posts":"x"}', 2), [])
   assert.equal(nextFolder(['1', '2', '10', 'README.txt']), '11')
   assert.equal(nextFolder([]), '1')
+})
+
+test('yayın sonucu: hesaplar aynı notta birikir, bir hesapta paylaşılan published kalır', () => {
+  const first = resultNote({ status: 'publishing', note: '2026-11-15 10:00' }, 'a', false, 'rate limit')
+  assert.deepEqual(first, { status: 'failed', note: '@a failed: rate limit' })
+  const second = resultNote({ status: 'failed', note: `2026-11-15 10:01 ${first.note}` }, 'b', true, 'https://x.com/1')
+  assert.deepEqual(second, { status: 'published', note: '@a failed: rate limit; @b ok https://x.com/1' })
+  assert.ok(isPartial(second))
+  assert.ok(!isPartial(resultNote({ status: 'publishing', note: '' }, 'a', true, '')))
+  // Önceki çalışmanın notu taşınmaz: içerik alınırken `publishing` yazılmıştı.
+  assert.equal(resultNote({ status: 'publishing', note: '2026-11-15 10:00 @x failed: old' }, 'a', true, '').note, '@a ok')
+})
+
+test('publishing durumunda takılan içerik: damgası 90 dakikadan eski ya da yok', () => {
+  const now = Date.parse('2026-11-15T12:00:00Z')
+  assert.ok(!stalePublishing({ status: 'publishing', note: '2026-11-15 11:00' }, now))
+  assert.ok(stalePublishing({ status: 'publishing', note: '2026-11-15 10:00' }, now))
+  assert.ok(stalePublishing({ status: 'publishing', note: '' }, now))
+  assert.ok(!stalePublishing({ status: 'failed', note: '2026-11-01 10:00' }, now))
+})
+
+test('içerik uyarıları', () => {
+  assert.deepEqual(contentWarnings({ caption: 10, media: 1, texts: 1, dirs: 0 }), [])
+  assert.deepEqual(contentWarnings({ caption: 5001, media: 21, texts: 2, dirs: 1 }), ['long-text', 'many-files', 'many-texts', 'subfolders'])
 })

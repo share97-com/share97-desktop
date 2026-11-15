@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { checkPost, cleanHandle, jobPrompt, profileUrl } from './platforms.ts'
+import { checkPost, cleanHandle, jobPrompt, lockProblem, profileUrl } from './platforms.ts'
 
 test('platform kuralları', () => {
   assert.equal(cleanHandle(' @@ali '), 'ali')
@@ -20,4 +20,12 @@ test('platform kuralları', () => {
   assert.equal(checkPost('instagram', { caption: 'x', media: [{ url: 'local:3/a.jpg' }], local }), null)
   assert.equal(checkPost('instagram', { caption: 'x', media: [{ url: 'https://a/b.png' }], local }), 'media must come from the content folder')
   assert.match(jobPrompt({ platform: 'x', handle: 'ali', browserId: 'b1', post: { caption: 'x', local }, files: [], folder: 'workflow/w1/contents/3' }), /workflow\/w1\/contents\/3/)
+})
+
+test('kilitli görev yalnız hesabın tarayıcısını kullanır', () => {
+  assert.equal(lockProblem(undefined, 'click', { browser_id: 'x' }), null)
+  assert.equal(lockProblem('acc', 'click', { browser_id: 'acc' }), null)
+  assert.equal(lockProblem('acc', 'web_search', { query: 'q' }), null)
+  assert.match(lockProblem('acc', 'click', { browser_id: 'other' })!, /only use browser_id acc/)
+  assert.match(lockProblem('acc', 'create_browser', { name: 'n' })!, /Do not create/)
 })
