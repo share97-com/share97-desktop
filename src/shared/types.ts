@@ -1,6 +1,6 @@
 /** Main, preload ve renderer arasında taşınan veri biçimleri (yalnız tipler, kod yok). */
 
-import type { ContentSettings, LocalContent } from './contents.ts'
+import type { ContentSettings, GenerateInput, LocalContent } from './contents.ts'
 
 /** Share97 hesabı (`GET /api/v1/worker/me`): paket, site kredisi, yapay zekâ bakiyesi ve bu cihaz (Worker). */
 export type Account = {
@@ -52,7 +52,7 @@ type OverviewFlow = { id: string; name: string; slug: string; active: boolean; w
 export type Overview = {
   /** Bu cihazın Worker kimliği. */
   me: string
-  /** `content`: akışın içerik ayarları — kaynak (site / cihazdaki klasör), sıra, tekrar. */
+  /** `content`: akışın içerik ayarları — sıra ve tekrar. İçerik akışın cihazındaki klasörde. */
   workflows: (OverviewFlow & { timezone: string; content: ContentSettings; lastRunAt: string | null; queued: number; nodes: string[] })[]
   upcoming: { at: number; workflowId: string; name: string }[]
   runs: { id: string; status: 'running' | 'success' | 'failed' | 'skipped'; error: string | null; startedAt: string; workflow: string; handle: string | null; permalink: string | null }[]
@@ -351,12 +351,17 @@ export type Api = {
     setWorker(id: string, workerId: string | null): Promise<void>
     /** Sunucuda şimdi çalıştırır; dönen durum `success` | `failed` | `skipped`. */
     run(id: string): Promise<{ status: string; error: string | null }>
-    /** İçerik ayarları (kaynak, sıra, tekrar). Kaynak bu cihazın klasörüyse `workerId` ile akış bu cihaza atanır. */
-    setContent(id: string, content: ContentSettings, workerId?: string): Promise<void>
+    /** İçerik ayarları: paylaşım sırası ve tekrar. */
+    setContent(id: string, content: ContentSettings): Promise<void>
+    rename(id: string, name: string): Promise<void>
+    /** Akışı sunucudan siler. Cihazdaki içerik klasörü durur (kullanıcının dosyaları). */
+    remove(id: string): Promise<void>
+    /** Yapay zekâ ile yeni içerik klasörleri (metin + isteğe bağlı görsel, durumu `pending`); dönüş: üretilen sayı. */
+    generate(id: string, input: GenerateInput): Promise<number>
     /** Akışın bu cihazdaki içerik klasörleri (`workflow/<id>/contents/1, 2, 3…`) ve durumları. */
     contents(id: string): Promise<LocalContent[]>
     openContents(id: string): Promise<void>
-    /** İçeriği bu cihazın klasöründen alan yeni bir taslak akış (klasörü örnek içerikle kurulur). */
+    /** Bu cihaza atanmış yeni bir taslak akış (klasörü örnek içerikle kurulur). */
     createLocal(name: string): Promise<void>
   }
   workers: {

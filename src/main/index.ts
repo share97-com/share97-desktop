@@ -14,7 +14,7 @@ import * as auth from './auth.ts'
 import * as backup from './backup.ts'
 import * as bookmarks from './bookmarks.ts'
 import * as chrome from './chrome/index.ts'
-import { createLocalWorkflow, listContents, openContents } from './contents.ts'
+import { createLocalWorkflow, generateContents, listContents, openContents } from './contents.ts'
 import * as downloads from './downloads.ts'
 import * as extensions from './extensions.ts'
 import * as passwords from './passwords.ts'
@@ -280,12 +280,18 @@ function registerIpc() {
     return { status: out.status, error: out.error }
   })
 
-  const CONTENT = { source: ['cloud', 'local'], order: ['sequential', 'random'] }
-  handle('workflows:setContent', (id, raw, workerId) => {
-    const c = (raw ?? {}) as { source?: unknown; order?: unknown; repeat?: unknown }
-    if (!CONTENT.source.includes(c.source as string) || !CONTENT.order.includes(c.order as string) || typeof c.repeat !== 'boolean') throw new Error('bad-argument')
-    return flow(id, { content: { source: c.source, order: c.order, repeat: c.repeat }, ...(workerId === undefined ? {} : { workerId: str(workerId, 200) }) })
+  handle('workflows:setContent', (id, raw) => {
+    const c = (raw ?? {}) as { order?: unknown; repeat?: unknown }
+    if ((c.order !== 'sequential' && c.order !== 'random') || typeof c.repeat !== 'boolean') throw new Error('bad-argument')
+    return flow(id, { content: { order: c.order, repeat: c.repeat } })
   })
+  handle('workflows:rename', (id, name) => flow(id, { name: str(name, 120) }))
+  handle('workflows:remove', async (id) => {
+    await auth.server(`/api/v1/worker/workflows/${encodeURIComponent(str(id, 200))}`, { method: 'DELETE' })
+    await accounts.syncAccounts()
+  })
+  // Metin ve görsel üretimi dakikalar sürebilir; sonuç klasöre yazılır.
+  handle('workflows:generate', (id, input) => generateContents(str(id, 200), flowName(str(id, 200)), input))
   const flowName = (id: string) => accounts.connectionsState().overview?.workflows.find((w) => w.id === id)?.name ?? id
   handle('workflows:createLocal', async (name) => {
     await createLocalWorkflow(str(name, 120))

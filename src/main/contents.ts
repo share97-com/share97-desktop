@@ -1,17 +1,20 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { shell } from 'electron'
 import type { Overview } from '../shared/types.ts'
-import { isContentFolder, isWorkflowId, parseLocalUrl, parseStatus, pickContent, statusText, type ContentSettings, type ContentStatus, type LocalContent, type LocalMedia } from '../shared/contents.ts'
+import { EXAMPLE_NOTE, generationMessages, isContentFolder, isExample, isWorkflowId, MAX_GENERATE, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type ContentSettings, type ContentStatus, type GenerateInput, type LocalContent, type LocalMedia } from '../shared/contents.ts'
 import { server } from './auth.ts'
+import { IMAGE_MODEL } from './auto.ts'
+import { apiJson } from './gateway.ts'
+import { DEFAULT_MODEL, settings } from './settings.ts'
 import { inside, kindOf } from './paths.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
 import * as ws from './workspace.ts'
 
 /**
- * **Akışların yerel içerikleri** (bkz. `shared/contents.ts`). İçerik kaynağı "cihazdaki klasör" olan her
- * akışın bu cihazda bir klasörü var: `<çalışma klasörü>/workflow/<akış kimliği>/contents/1, 2, 3…`.
+ * **Akışların yerel içerikleri** (bkz. `shared/contents.ts`). İçerik yalnız cihazda duruyor: bu cihaza
+ * atanmış her akışın bir klasörü var: `<çalışma klasörü>/workflow/<akış kimliği>/contents/1, 2, 3…`.
  * Akış çalışınca sunucu sıradaki içeriği buradan istiyor (`takeContent`); yayını yine bu cihazdaki agent
  * yapıyor ve sonucu klasörün `status.txt`ine yazıyor. Dosyalar cihazdan çıkmıyor.
  */
@@ -44,7 +47,8 @@ const readme = (name: string) =>
     'To share a content again, write "pending" into its status.txt.',
     '',
     'The order (in order or random) and "start over when everything has been shared"',
-    'are settings of the workflow. Folder 1 is an example and is already "published".',
+    'are settings of the workflow. Folder 1 is a complete example (text, image, video) and is',
+    'already "published", so it is never shared: copy it, or use "Generate content" in the app.',
     '',
     '---',
     'Her içerik numaralı bir klasördür: 1, 2, 3, 4, 5, 6 ...',
@@ -55,14 +59,33 @@ const readme = (name: string) =>
     '',
   ].join('\r\n')
 
-/** Akışın klasörünü kurar. İlk kez kuruluyorsa içine bir örnek içerik (`1`, durumu `published`) koyar. */
+const EXAMPLES = join(import.meta.dirname, '../../resources/examples')
+
+/**
+ * `1` numaralı klasör baştan sona örnek: metin, bir görsel, bir video ve `status.txt` (`published`: hiç
+ * paylaşılmaz). Eksik dosyası tamamlanır; kullanıcının değiştirdiği dosyaya dokunulmaz.
+ */
+async function writeExample(root: string) {
+  const dir = join(root, '1')
+  await mkdir(dir, { recursive: true })
+  const put = async (name: string, write: (to: string) => Promise<void>) => existsSync(join(dir, name)) || (await write(join(dir, name)))
+  await put('content.txt', (to) => writeFile(to, 'This folder is an example of one content: this text file is the post text, example-image.jpg and example-video.mp4 are the files that get uploaded, and status.txt holds the state.\r\n\r\nFor your own content, create the next numbered folder (2, 3, 4 ...), put the text and the images or videos in it, and leave status.txt out or write "pending" into it. #share97\r\n'))
+  for (const f of ['example-image.jpg', 'example-video.mp4']) await put(f, (to) => copyFile(join(EXAMPLES, f), to))
+  await put(STATUS, (to) => writeFile(to, statusText('published', EXAMPLE_NOTE)))
+}
+
+/** Akışın klasörünü kurar; ilk kez kuruluyorsa içine örnek içeriği (`1`) ve `README.txt`i koyar. */
 export async function ensureContents(workflowId: string, name: string) {
   const root = dir(workflowId)
-  if (existsSync(root)) return root
-  await mkdir(join(root, '1'), { recursive: true })
-  await writeFile(join(root, README), readme(name))
-  await writeFile(join(root, '1', 'content.txt'), 'This is an example content. Replace this text with your post, put the images or videos of the post next to it, and write "pending" into status.txt when it is ready to be shared.\r\n')
-  await writeFile(join(root, '1', STATUS), statusText('published', 'example content'))
+  if (!existsSync(root)) {
+    await mkdir(root, { recursive: true })
+    await writeFile(join(root, README), readme(name))
+    await writeExample(root)
+  } else {
+    // Eski sürümün yalnız metinli örneği tamamlanır.
+    const one = await readContent(workflowId, '1').catch(() => null)
+    if (one && isExample(one)) await writeExample(root)
+  }
   return root
 }
 
@@ -90,6 +113,7 @@ const stamp = () => new Date().toISOString().slice(0, 16).replace('T', ' ')
 
 export async function setContentStatus(workflowId: string, folder: string, status: ContentStatus, note = '') {
   await writeFile(join(dir(workflowId, folder), STATUS), statusText(status, `${stamp()} ${note}`.trim()))
+  ws.changed()
 }
 
 /**
@@ -101,7 +125,7 @@ export async function takeContent(workflowId: string, o: Pick<ContentSettings, '
     const items = await listContents(workflowId)
     const { pick, restart } = pickContent(items, o)
     if (!pick) return null
-    if (restart) for (const i of items) if (i.status === 'published') await setContentStatus(workflowId, i.folder, 'pending', 'started over')
+    if (restart) for (const i of items) if (i.status === 'published' && !isExample(i)) await setContentStatus(workflowId, i.folder, 'pending', 'started over')
     if (!pick.caption && !pick.media.length) {
       await setContentStatus(workflowId, pick.folder, 'failed', 'the folder has no text file and no image or video')
       continue
@@ -128,24 +152,64 @@ export function contentFiles(workflowId: string, folder: string, urls: string[])
   })
 }
 
+/**
+ * **Yapay zekâ ile içerik üretimi.** Bir içerik örnek alınarak (`from`) ya da yalnız konudan, akışın klasörüne
+ * yeni numaralı içerikler yazılır: metin (`content.txt`), istenirse bir görsel (`image.png`) ve `pending`
+ * durumu. Her biri özgün bir paylaşımdır (bkz. `generationMessages`). Metin ve görsel Share97 geçidiyle
+ * üretilir (bedeli krediden). Dönüş: yazılan içerik sayısı.
+ */
+export async function generateContents(workflowId: string, name: string, raw: unknown): Promise<number> {
+  const r = (raw ?? {}) as Partial<Record<keyof GenerateInput, unknown>>
+  const from = typeof r.from === 'string' && isContentFolder(r.from) ? r.from : null
+  const topic = typeof r.topic === 'string' ? r.topic.slice(0, 2000) : ''
+  const count = Math.min(MAX_GENERATE, Math.max(1, Math.round(Number(r.count)) || 1))
+  const source = from ? (await readContent(workflowId, from)).caption : null
+  if (!source && !topic.trim()) throw new Error('Write a topic or choose a content to start from.')
+
+  const chat = await apiJson<{ choices?: { message?: { content?: string } }[] }>('chat/completions', { model: settings().chatModel ?? DEFAULT_MODEL, response_format: { type: 'json_object' }, messages: generationMessages({ count, topic, source }) })
+  const posts = parseGenerated(chat.choices?.[0]?.message?.content ?? '', count)
+  if (!posts.length) throw new Error('The model returned no usable post. Try again or choose another chat model in Settings.')
+
+  const root = await ensureContents(workflowId, name)
+  let made = 0
+  for (const post of posts) {
+    // Görsel önce üretilir: düşerse yarım (görselsiz) bir içerik klasörü kalmaz.
+    let image: Uint8Array | null = null
+    if (r.withImage === true) {
+      const img = await apiJson<{ data?: { url?: string; b64_json?: string }[] }>('images/generations', { model: settings().imageModel ?? IMAGE_MODEL, prompt: post.imagePrompt || post.caption.slice(0, 500), n: 1 })
+      const first = img.data?.[0]
+      image = first?.b64_json ? Buffer.from(first.b64_json, 'base64') : first?.url ? new Uint8Array(await (await fetch(first.url, { signal: AbortSignal.timeout(120_000) })).arrayBuffer()) : null
+      if (!image?.length) throw new Error(`The image model returned no image (${made} content(s) were created).`)
+    }
+    const folder = join(root, nextFolder((await readdir(root)).filter(isContentFolder)))
+    await mkdir(folder)
+    await writeFile(join(folder, 'content.txt'), `${post.caption}\r\n`)
+    if (image) await writeFile(join(folder, 'image.png'), image)
+    await writeFile(join(folder, STATUS), statusText('pending', `${stamp()} generated${from ? ` from ${from}` : ''}`))
+    made++
+  }
+  ws.changed()
+  return made
+}
+
 export const openContents = async (workflowId: string, name: string) => void (await shell.openPath(await ensureContents(workflowId, name)))
 
 /* ---------------- Eşitleme ---------------- */
 
-const EXAMPLE_NAME = 'Example local workflow'
+const EXAMPLE_NAME = 'Example workflow'
 
-/** Sunucuda içeriği bu cihazın klasöründen alan durdurulmuş bir taslak akış açar; klasörü bir sonraki eşitlemede kurulur. */
+/** Sunucuda bu cihaza atanmış, durdurulmuş bir taslak akış açar; içerik klasörü bir sonraki eşitlemede kurulur. */
 export const createLocalWorkflow = (name: string) => server('/api/v1/worker/workflows', { body: { name, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } })
 const file = () => dataPath('workflows.json')
 
 /**
  * Sunucudaki akışlarla bu cihazın klasörlerini eşitler (her hesap eşitlemesinde ve "Eşitle" düğmesiyle):
- * içeriği bu cihazda duran her akışın klasörü kurulur. Hesapta hiç akış yoksa bir kez **örnek akış**
- * açılır (durdurulmuş taslak; içeriği bu cihazın klasöründen). Dönüş: örnek akış açıldı, genel bakış
+ * bu cihaza atanmış, kuyruktan içerik alan her akışın klasörü kurulur. Hesapta hiç akış yoksa bir kez
+ * **örnek akış** açılır (durdurulmuş taslak, bu cihaza atanmış). Dönüş: örnek akış açıldı, genel bakış
  * yeniden okunmalı.
  */
 export async function syncContents(ov: Overview): Promise<boolean> {
-  for (const w of ov.workflows) if (w.content.source === 'local' && w.workerId === ov.me) await ensureContents(w.id, w.name).catch((e) => console.error('[contents]', (e as Error).message))
+  for (const w of ov.workflows) if (w.workerId === ov.me && w.nodes.includes('queue')) await ensureContents(w.id, w.name).catch((e) => console.error('[contents]', (e as Error).message))
   if (ov.workflows.length || readJson<{ example?: boolean }>(file(), {}).example) return false
   // Bir kez denenir: paket sınırı doluysa ya da kullanıcı örneği sildiyse yeniden açılmaz.
   writeJson(file(), { example: true })

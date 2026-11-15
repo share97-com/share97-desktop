@@ -14,7 +14,7 @@ import * as ws from './workspace.ts'
  * agent hesabın tarayıcısında yapıyor; yapılan paylaşım sitedeki İçerikler'e yazılıyor.
  */
 const GAP_MS = 30 * 60_000
-const IMAGE_MODEL = 'openai/gpt-5.4-image-2'
+export const IMAGE_MODEL = 'openai/gpt-5.4-image-2'
 
 type State = { queue: AutoJob[]; nextAt: number }
 const file = () => dataPath('auto.json')

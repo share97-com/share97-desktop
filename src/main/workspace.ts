@@ -15,6 +15,8 @@ export const root = () => join(app.getPath('home'), 'share97-desktop')
 
 let listener = () => {}
 export const onFilesChange = (cb: () => void) => (listener = cb)
+/** Çalışma klasörüne bu modülün dışında yazıldı (akış içerikleri): dosya listesi tazelensin. */
+export const changed = () => listener()
 
 /** Yazılacak yeni dosya: klasör içinde, var olanın üzerine yazmıyor (`ad-2.xlsx`). */
 export async function newFile(relPath: string): Promise<string> {
