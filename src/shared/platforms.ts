@@ -29,14 +29,15 @@ export const cleanHandle = (raw: string) => raw.trim().replace(/^@+/, '').slice(
 /** Hesabın profil adresi. */
 export const profileUrl = (id: PlatformId, handle: string) => PLATFORMS[id].profile.replace('{}', encodeURIComponent(cleanHandle(handle)))
 
-export type JobPost = { type?: string; caption?: string; media?: { url: string; kind?: string }[]; firstComment?: string; instruction?: string }
+/** `local`: içerik bu cihazdaki akış klasöründen (bkz. `contents.ts`); medya adresleri `local:<klasör>/<dosya>`. */
+export type JobPost = { type?: string; caption?: string; media?: { url: string; kind?: string }[]; firstComment?: string; instruction?: string; local?: { workflowId: string; folder: string } }
 
 /** Yayın öncesi yerel denetim (model çağrılmadan); `null` geçti demek. Talimatlı iş paylaşım değil, denetlenmiyor. */
 export function checkPost(id: string, post: JobPost): string | null {
   const p = platformOf(id)
   if (!p) return `unsupported platform: ${id}`
   const media = post.media ?? []
-  if (media.some((m) => !/^https:\/\//.test(m.url))) return 'media must be https'
+  if (media.some((m) => !(post.local ? /^local:/ : /^https:\/\//).test(m.url))) return post.local ? 'media must come from the content folder' : 'media must be https'
   if (post.instruction) return null
   if (p.needsMedia && !media.length) return `${p.label} needs an image or video`
   if (!(post.caption ?? '').trim() && !media.length) return 'post is empty'
@@ -47,7 +48,7 @@ export function checkPost(id: string, post: JobPost): string | null {
  * Sunucudan gelen işin agent'a verilen görev metni. Talimat yoksa görev paylaşımdır. Metin ve
  * talimat kullanıcının kendi akışından geliyor; sayfa içeriği gibi güvenilmeyen veri değil.
  */
-export function jobPrompt(o: { platform: string; handle: string; browserId: string; post: JobPost; files: string[] }) {
+export function jobPrompt(o: { platform: string; handle: string; browserId: string; post: JobPost; files: string[]; folder?: string }) {
   const label = platformOf(o.platform)?.label ?? o.platform
   return [
     `Work only in browser_id ${o.browserId}: it is signed in to the ${label} account @${o.handle}. Stay on ${label}.`,
@@ -57,6 +58,7 @@ export function jobPrompt(o: { platform: string; handle: string; browserId: stri
     ...(o.post.caption ? [`Post caption (use it exactly): ${JSON.stringify(o.post.caption)}`] : []),
     ...(o.post.firstComment ? [`Right after publishing, add this first comment: ${JSON.stringify(o.post.firstComment)}`] : []),
     ...(o.files.length ? [`Files to upload (workspace paths, use upload_files): ${o.files.join(', ')}`] : []),
+    ...(o.folder ? [`This content comes from the workflow's local content folder ${o.folder} (workspace path). Before publishing, check that every listed file is there and can be uploaded; if one is missing or unusable, stop and call finish_task with success=false.`] : []),
     'Do each action once and never press a final publish or send button twice.',
     'If sign-in, a captcha, identity verification, a rate limit or a warning about automation appears, stop: call finish_task with success=false (and signed_out=true when the account is signed out). Do not try to get around it.',
     "When done, call finish_task: success, a one-line summary, and the post's address in permalink if the page shows one.",

@@ -1,5 +1,7 @@
-import { ExternalLink, Loader2, Monitor, Play, Plus, RefreshCw, Server } from 'lucide-react'
-import { useState } from 'react'
+import { ExternalLink, FolderOpen, Loader2, Monitor, Play, Plus, RefreshCw, Server } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import type { ContentSettings, LocalContent } from '../../shared/contents.ts'
+import type { Overview } from '../../shared/types.ts'
 import { api, errorText, useConnections } from './hooks.ts'
 import { dateTime, t } from './i18n.ts'
 import { toast } from './Toast.tsx'
@@ -8,9 +10,10 @@ import { button, Card, iconButton, input, Page, Pill, PlatformBadge, primary, se
 const when = (v: string | number | null) => (v ? dateTime.format(new Date(v)) : t.never)
 
 /**
- * **Akışlar.** Sunucudaki akışlar (web ile aynı kayıt): aç/durdur, çalıştıracak cihazı seç, şimdi
- * çalıştır; sıradaki yuvalar, son çalışmaların sonucu ve hesaba bağlı bütün cihazlar (Worker'lar).
- * Düzenleme sitenin düzenleyicisinde, bu cihazın oturumuyla açılıyor.
+ * **Akışlar.** Sunucudaki akışlar (web ile aynı kayıt), bu cihazla eşitlenir (kendiliğinden ve "Eşitle"
+ * düğmesiyle): aç/durdur, çalıştıracak cihazı seç, şimdi çalıştır; içerik ayarları (kaynak: site ya da bu
+ * bilgisayardaki klasör, sıra, tekrar) ve yerel içerik klasörleri; sıradaki yuvalar, son çalışmaların
+ * sonucu ve hesaba bağlı bütün cihazlar (Worker'lar). Düzenleme sitenin düzenleyicisinde.
  */
 export function Workflows() {
   const state = useConnections()
@@ -30,8 +33,12 @@ export function Workflows() {
       hint={t.flows.hint}
       actions={
         <>
-          <button className={iconButton} title={t.refresh} aria-label={t.refresh} onClick={() => act('refresh', api().connections.refresh(true))}>
-            <RefreshCw className={`size-4 ${busy === 'refresh' ? 'animate-spin' : ''}`} />
+          {state?.syncedAt ? <span className="text-xs tabular-nums text-muted">{t.flows.synced(when(state.syncedAt))}</span> : null}
+          <button className={button} disabled={busy === 'refresh'} onClick={() => act('refresh', api().connections.refresh(true), () => toast(t.flows.syncDone))}>
+            <RefreshCw className={`size-4 ${busy === 'refresh' ? 'animate-spin' : ''}`} /> {t.flows.sync}
+          </button>
+          <button className={button} disabled={busy === 'local'} onClick={() => act('local', api().workflows.createLocal(t.flows.localName), () => toast(t.flows.localCreated))}>
+            <FolderOpen className="size-4" /> {t.flows.createLocal}
           </button>
           <button className={primary} onClick={() => void api().site.open('/workflows')}>
             <Plus className="size-4" /> {t.flows.create}
@@ -55,7 +62,8 @@ export function Workflows() {
           )}
           <div className="space-y-2">
             {ov.workflows.map((w) => (
-              <div key={w.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-line bg-panel/80 p-3">
+              <div key={w.id} className="rounded-lg border border-line bg-panel/80 p-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <Switch on={w.active} label={w.active ? t.flows.active : t.flows.paused} disabled={busy === w.id} onChange={(on) => act(w.id, api().workflows.setActive(w.id, on))} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{w.name}</p>
@@ -90,6 +98,8 @@ export function Workflows() {
                 <button className={iconButton} title={t.flows.openEditor} aria-label={t.flows.openEditor} onClick={() => void api().site.open(`/workflows/${w.slug}`)}>
                   <ExternalLink className="size-4" />
                 </button>
+              </div>
+              <ContentRow w={w} ov={ov} syncedAt={state?.syncedAt ?? 0} disabled={busy === w.id} onChange={(content, workerId) => act(w.id, api().workflows.setContent(w.id, content, workerId))} />
               </div>
             ))}
           </div>
@@ -146,6 +156,70 @@ export function Workflows() {
         </>
       )}
     </Page>
+  )
+}
+
+const STATUS_TONE = { pending: 'muted', publishing: 'warn', published: 'ok', failed: 'bad' } as const
+
+/**
+ * Akışın içerik ayarları: kaynak (sitedeki İçerikler / bu bilgisayardaki klasör), paylaşım sırası ve tekrar.
+ * Kaynak bu cihazın klasörüyse içerikler (`workflow/<kimlik>/contents/1, 2, 3…`) durumlarıyla listelenir.
+ */
+function ContentRow({ w, ov, syncedAt, disabled, onChange }: { w: Overview['workflows'][number]; ov: Overview; syncedAt: number; disabled: boolean; onChange(content: ContentSettings, workerId?: string): void }) {
+  const c = w.content
+  const here = c.source === 'local' && w.workerId === ov.me
+  const [items, setItems] = useState<LocalContent[] | null>(null)
+  useEffect(() => {
+    if (!here) return setItems(null)
+    void api()
+      .workflows.contents(w.id)
+      .then(setItems, () => setItems([]))
+  }, [here, w.id, syncedAt])
+  const select = `${input} w-auto py-1`
+
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted">
+        <span>{t.flows.content}</span>
+        {/* Yerel içerik bir cihazın klasöründe: cihazı seçilmemiş akış bu cihaza atanır. */}
+        <select className={select} value={c.source} disabled={disabled} aria-label={t.flows.content} onChange={(e) => onChange({ ...c, source: e.target.value as ContentSettings['source'] }, e.target.value === 'local' && !w.workerId ? ov.me : undefined)}>
+          <option value="cloud">{t.flows.source.cloud}</option>
+          <option value="local">{t.flows.source.local}</option>
+        </select>
+        <select className={select} value={c.order} disabled={disabled} onChange={(e) => onChange({ ...c, order: e.target.value as ContentSettings['order'] })}>
+          <option value="sequential">{t.flows.order.sequential}</option>
+          <option value="random">{t.flows.order.random}</option>
+        </select>
+        <label className="flex items-center gap-2">
+          <Switch on={c.repeat} label={t.flows.repeat} disabled={disabled} onChange={(repeat) => onChange({ ...c, repeat })} />
+          {t.flows.repeat}
+        </label>
+        {here && (
+          <button className={`${button} ml-auto`} onClick={() => void api().workflows.openContents(w.id)}>
+            <FolderOpen className="size-3.5" /> {t.flows.openFolder}
+          </button>
+        )}
+      </div>
+      {c.source === 'local' && !here && <p className="mt-2 text-xs text-muted">{t.flows.otherDevice(ov.workers.find((k) => k.id === w.workerId)?.name ?? '?')}</p>}
+      {here && items && (
+        <>
+          <p className="mt-2 text-xs text-muted">
+            workflow/{w.id}/contents · {t.flows.folderHint}
+          </p>
+          {!items.length && <p className="mt-2 text-sm text-muted">{t.flows.noFolders}</p>}
+          <ul className="mt-2 space-y-1 text-sm">
+            {items.map((i) => (
+              <li key={i.folder} className="flex items-center gap-2" title={i.note}>
+                <span className="w-8 shrink-0 text-right tabular-nums text-muted">{i.folder}</span>
+                <Pill tone={STATUS_TONE[i.status]}>{t.flows.status[i.status]}</Pill>
+                <span className="min-w-0 flex-1 truncate">{i.caption.split('\n')[0] || t.flows.noText}</span>
+                {i.media.length > 0 && <span className="shrink-0 text-xs text-muted">{t.flows.files(i.media.length)}</span>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
   )
 }
 

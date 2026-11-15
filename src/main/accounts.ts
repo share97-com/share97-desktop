@@ -4,6 +4,7 @@ import { PLATFORMS, cleanHandle, isPlatform, platformOf, type PlatformId } from 
 import { server, ServerError } from './auth.ts'
 import type { Browsers } from './browsers.ts'
 import type { ChromeBridge } from './chrome/bridge.ts'
+import { syncContents } from './contents.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
 
 /**
@@ -63,12 +64,14 @@ const changed = () => emit(connectionsState())
 export const localAccounts = () => saved().locals
 export const lastSync = () => syncedAt
 
-/** Sitedeki liste tek kaynak: sitede kaldırılan hesabın cihazdaki oturumu da siliniyor. */
+/** Hesaplar ve akışlar sunucuyla eşitlenir. Sitedeki liste tek kaynak: sitede kaldırılan hesabın cihazdaki oturumu da siliniyor. */
 export async function syncAccounts() {
   try {
     const [{ accounts }, ov] = await Promise.all([server<{ accounts: Remote[] }>('/api/v1/worker/accounts'), server<Overview>('/api/v1/worker/overview')])
     remote = accounts
-    overview = ov
+    // Akışlar da eşitleniyor: içeriği bu cihazda duran akışların klasörleri kurulur; ilk seferde örnek akış açılır.
+    overview = (await syncContents(ov)) ? await server<Overview>('/api/v1/worker/overview') : ov
+    if (overview !== ov) await syncContents(overview)
     error = null
     syncedAt = Date.now()
     for (const gone of saved().locals.filter((l) => !accounts.some((a) => a.id === l.id))) await forget(gone)

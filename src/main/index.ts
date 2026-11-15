@@ -14,6 +14,7 @@ import * as auth from './auth.ts'
 import * as backup from './backup.ts'
 import * as bookmarks from './bookmarks.ts'
 import * as chrome from './chrome/index.ts'
+import { createLocalWorkflow, listContents, openContents } from './contents.ts'
 import * as downloads from './downloads.ts'
 import * as extensions from './extensions.ts'
 import * as passwords from './passwords.ts'
@@ -279,10 +280,23 @@ function registerIpc() {
     return { status: out.status, error: out.error }
   })
 
+  const CONTENT = { source: ['cloud', 'local'], order: ['sequential', 'random'] }
+  handle('workflows:setContent', (id, raw, workerId) => {
+    const c = (raw ?? {}) as { source?: unknown; order?: unknown; repeat?: unknown }
+    if (!CONTENT.source.includes(c.source as string) || !CONTENT.order.includes(c.order as string) || typeof c.repeat !== 'boolean') throw new Error('bad-argument')
+    return flow(id, { content: { source: c.source, order: c.order, repeat: c.repeat }, ...(workerId === undefined ? {} : { workerId: str(workerId, 200) }) })
+  })
+  const flowName = (id: string) => accounts.connectionsState().overview?.workflows.find((w) => w.id === id)?.name ?? id
+  handle('workflows:createLocal', async (name) => {
+    await createLocalWorkflow(str(name, 120))
+    await accounts.syncAccounts()
+  })
+  handle('workflows:contents', (id) => listContents(str(id, 200)))
+  handle('workflows:openContents', (id) => openContents(str(id, 200), flowName(str(id, 200))))
+
   handle('workers:list', () => workers.workerDefs())
   handle('workers:save', (id, input) => workers.saveWorker(id === null ? null : str(id, 200), input))
   handle('workers:remove', (id) => workers.removeWorker(str(id, 200)))
-  handle('workers:setEnabled', (id, on) => workers.setWorkerEnabled(str(id, 200), on === true))
   handle('workers:run', (id) => void workers.runWorker(str(id, 200)).catch(() => {}))
   handle('workers:activity', () => deviceActivity())
 

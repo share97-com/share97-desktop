@@ -17,7 +17,7 @@ npm run dist       # Windows kurulum dosyası: dist/
 | **Sohbet** | Agent ile sohbet: plan, araç çağrıları, onay kartları, dosyalar. Yazma kutusunun üstünde bu cihazdaki hesaplar işaretlenir; işaretlenen her hesap için agent o hesabın tanımlı olduğu tarayıcıda (ya da Chrome'da) çalışır. Worker ve akış işleri de burada sohbet süreci olarak görünür. |
 | **Bağlantılar** | Bütün sosyal medya hesapları tek listede; platforma, kendi grubuna, cihaza ya da duruma göre gruplanır. Hesap ekleme, yeniden giriş, grup verme, kaldırma. |
 | **Akışlar** | Sunucudaki akışlar (web ile aynı kayıt): aç/durdur, çalıştıracak cihazı seç, şimdi çalıştır; sıradaki yuvalar, son çalışmaların sonucu ve hesaba bağlı bütün cihazlar. Düzenleme sitenin düzenleyicisinde açılır. |
-| **Worker'lar** | Bu cihazdaki programlanabilir işler: talimat + hesaplar + model + zamanlama (elle, aralıkla, günün saatinde). Çalışınca bir sohbet süreci başlatır. |
+| **Worker'lar** | Bu cihazda elle ("Çalıştır") başlatılan kayıtlı agent işleri: talimat + hesaplar + model. Zamanlama yok: zamanı gelince çalışan iş bir akıştır. Çalışınca bir sohbet süreci başlatır. |
 | **Chrome** | `share97-chrome` eklentisiyle bağlanan Chrome profilleri. |
 | **Yedekler** | Bütün ayarlar ve tarayıcı çerezleri tek `.share97` dosyasında (brotli ile sıkıştırılmış), `Belgeler\Share97\Yedekler` altında: yeni yedek, var olanı güncelle, klasörde göster, dosyadan ekle, geri yükle (önce bugünkü durum ayrıca yedeklenir). `src/main/backup.ts`. |
 | **Paket ve kredi** | Ücretsiz / Pro paket, günlük hak, ek kredi, yapay zekâ bakiyesi; satın alma sitenin faturalama sayfasında. |
@@ -48,7 +48,11 @@ Oturumlar cihazdan çıkmaz; sunucuda yalnız hesabın adı ve bu cihaza bağlı
 
 `src/main/device.ts`: uygulama 15 saniyede bir `POST /api/v1/worker/poll` ile iş alır. Sunucudaki akış bir paylaşımı ya da talimatı bu cihazdaki bir hesaba gönderdiğinde agent işi hesabın tarayıcısında yapar (`Agent.task`, sonuç `finish_task` ile), sonuç `POST /api/v1/worker/jobs/<id>` ile sunucuya yazılır ve sitede akışın çalışmasında görünür. Oturum düşmüşse iş başlamadan `expired` bildirilir.
 
-`src/main/workers.ts`: Worker tanımlarını cihaz çalıştırır (`workers.json`) ve her değişiklikte, her çalışmadan sonra sunucuya yazar (`PUT /api/v1/worker/definitions`): sitedeki Workers sayfası hangi cihazda hangi görevin çalıştığını ve son sonucunu gösterir, yeniden kurulan cihaz tanımlarını oradan geri alır. Zamanlayıcı 30 saniyede bir bakar; uygulama kapalıyken kaçan çalışma açılışta bir kez yapılır. Başıboş işler (sunucu işleri + Worker'lar) sırayla koşar. Bu işlerde agent'ın onay isteyeceği eylemler kendiliğinden onaylanır: başında kimse yoktur.
+`src/main/workers.ts`: Worker tanımlarını cihaz çalıştırır (`workers.json`) ve her değişiklikte, her çalışmadan sonra sunucuya yazar (`PUT /api/v1/worker/definitions`): sitedeki Workers sayfası hangi cihazda hangi görevin çalıştığını ve son sonucunu gösterir, yeniden kurulan cihaz tanımlarını oradan geri alır. Tanımda zamanlama yoktur (zamanı akışlar belirler); tanım "Çalıştır" ile başlar. Başıboş işler (sunucu işleri + Worker'lar) sırayla koşar. Bu işlerde agent'ın onay isteyeceği eylemler kendiliğinden onaylanır: başında kimse yoktur.
+
+**Yerel içerik** (`src/main/contents.ts`, saf kısmı `src/shared/contents.ts`): akışın içerik kaynağı "cihazdaki klasör" ise içerikleri bu bilgisayarda durur: `<kullanıcı klasörü>/share97-desktop/workflow/<akış kimliği>/contents/1, 2, 3…`. Her numaralı klasör bir içeriktir: bir metin dosyası (açıklama), görseller ya da videolar ve durumu gösteren `status.txt` (`pending` · `publishing` · `published` · `failed`; ikinci satır not). Akış çalışınca sunucu sıradaki içeriği yoklamayla ister (`poll` yanıtındaki `content`); cihaz `pending` olanlardan sıradakini ya da rastgele birini seçer (akışın ayarı), `publishing` yazar ve metni + dosya adlarını bildirir (`POST /api/v1/worker/content/<id>`). Yayını yine bu cihazdaki agent yapar (dosyalar klasörden yüklenir, sunucuya çıkmaz) ve sonuç `status.txt`e yazılır: `published` olan bir daha alınmaz; yeniden paylaşmak için `pending` yazılır. Tekrar açıksa hepsi paylaşılınca baştan başlar.
+
+**Akış eşitlemesi**: akışlar sunucuda durur; uygulama onları hesaplarla birlikte dakikada bir ve Akışlar ekranındaki **Eşitle** düğmesiyle okur (`accounts.syncAccounts` → `contents.syncContents`). İçeriği bu cihazda duran her akışın klasörü kurulur; ilk kurulduğunda içine örnek bir içerik (`1`, durumu `published`) ve `README.txt` konur. Hesapta hiç akış yoksa bir kez **örnek akış** açılır (`POST /api/v1/worker/workflows`: durdurulmuş taslak, içeriği bu cihazın klasöründen). İçerik ayarları (kaynak, sıra, tekrar) Akışlar ekranından da değişir.
 
 **Otomatik paylaşım** (`src/main/auto.ts`): ayar sitenin Ayarlar sayfasında (aralık, diller, konular). Yoklamada sıra boşsa tur sunucudan alınır (`POST /api/v1/worker/auto-content`, iki cihaz aynı turu alamaz); seçili her dil için bir paylaşım, hesaplara sırayla, konusu rastgele. Metin ve görsel Share97 geçidiyle yazılır (bedeli krediden), paylaşımı agent hesabın tarayıcısında yapar, sonuç `PUT /api/v1/worker/auto-content` ile sitedeki İçerikler'e yazılır. Paylaşımlar arası 30 dakika; sıra `auto.json`da, yeniden açılışta kaldığı yerden sürer.
 
@@ -74,13 +78,14 @@ src/main/        ana süreç
   gateway.ts     yapay zekâ geçidi istemcisi (modeller, medya)
   accounts.ts    sosyal hesaplar: ekleme, giriş, gruplar, sunucuyla eşitleme
   device.ts      Worker döngüsü: sunucudan iş al, yap, sonucu bildir
-  workers.ts     Worker tanımları ve zamanlayıcı
+  workers.ts     Worker tanımları (elle çalıştırılır)
+  contents.ts    Akışların yerel içerik klasörleri ve akış eşitlemesi
   auto.ts        otomatik paylaşım turu
   power.ts       sürekli çalışma (Windows güç ayarları)
   agent/         LangChain agent, araçlar, sayfa kontrolü
   browsers.ts    tarayıcı profilleri ve sekmeler
   chrome/        eklenti köprüsü
-src/shared/      tipler, platform tablosu, zamanlama kuralları
+src/shared/      tipler, platform tablosu, yerel içerik kuralları
 src/renderer/    React arayüzü (Hallmark, Lumen teması: styles.css + tokens.css)
 share97-chrome/  Chrome eklentisi
 ```

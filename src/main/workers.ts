@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
 import type { WorkerDef, WorkerInput, WorkerRun } from '../shared/types.ts'
-import { cleanSchedule, nextRun } from '../shared/schedule.ts'
 import { accountLine, localAccounts } from './accounts.ts'
 import type { Agent } from './agent/index.ts'
 import { apiKey, refresh, server } from './auth.ts'
@@ -8,9 +7,9 @@ import { exclusive, log } from './device.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
 
 /**
- * **Worker tanımları** — bu cihazda tekrar tekrar çalışan programlanabilir işler (n8n'deki bir akış
- * gibi, ama adımları agent yürütüyor): bir talimat, kullanacağı hesaplar, isteğe bağlı model ve
- * zamanlama (elle, aralıkla ya da günün saatinde). Her çalışma bir **sohbet süreci** başlatır
+ * **Worker tanımları** — bu cihazda **elle** ("Çalıştır") başlatılan, kayıtlı agent işleri: bir talimat,
+ * kullanacağı hesaplar ve isteğe bağlı model. Zamanlama burada yok: zamanı gelince çalışan iş bir
+ * **akıştır** (zamanı akışın tetikleyicisi belirliyor). Her çalışma bir **sohbet süreci** başlatır
  * (`Agent.task`): kullanıcı Sohbet ekranında adım adım izleyebilir, sonucu burada görür.
  *
  * Tanımları cihaz çalıştırıyor (`workers.json`) ve her değişiklikte, her çalışmadan sonra sunucuya
@@ -18,7 +17,6 @@ import { dataPath, readJson, writeJson } from './store.ts'
  * sonucunu gösteriyor; yeniden kurulan cihaz tanımlarını oradan geri alıyor.
  */
 
-const CHECK_MS = 30_000
 const MAX_RUNS = 20
 const file = () => dataPath('workers.json')
 
@@ -36,10 +34,10 @@ const active = new Set<string>()
 const push = (d: Stored) =>
   void server('/api/v1/worker/definitions', {
     method: 'PUT',
-    body: { id: d.id, name: d.name, prompt: d.prompt, accountIds: d.accountIds, model: d.model, schedule: d.schedule, enabled: d.enabled, nextRunAt: d.nextRunAt, lastRunAt: d.lastRunAt, lastOk: d.runs[0]?.ok ?? null, lastSummary: d.runs[0]?.summary ?? null },
+    body: { id: d.id, name: d.name, prompt: d.prompt, accountIds: d.accountIds, model: d.model, lastRunAt: d.lastRunAt, lastOk: d.runs[0]?.ok ?? null, lastSummary: d.runs[0]?.summary ?? null },
   }).catch((e) => console.error('[workers]', (e as Error).message))
 
-type RemoteTask = Pick<Stored, 'id' | 'name' | 'prompt' | 'accountIds' | 'model' | 'schedule' | 'enabled'> & { createdAt: string; nextRunAt: string | null; lastRunAt: string | null; lastOk: boolean | null; lastSummary: string | null }
+type RemoteTask = Pick<Stored, 'id' | 'name' | 'prompt' | 'accountIds' | 'model'> & { createdAt: string; lastRunAt: string | null; lastOk: boolean | null; lastSummary: string | null }
 
 /**
  * Girişte: cihazda tanım varsa sunucudaki eşleri tazelenir; yoksa (yeni kurulum) bu cihazın sunucudaki
@@ -53,8 +51,7 @@ export async function syncWorkers() {
   const ms = (v: string | null) => (v ? new Date(v).getTime() : null)
   list = tasks.map((t) => {
     const last = ms(t.lastRunAt)
-    const schedule = cleanSchedule(t.schedule)
-    return { id: t.id, name: t.name, prompt: t.prompt, accountIds: t.accountIds, model: t.model, schedule, enabled: t.enabled, createdAt: ms(t.createdAt) ?? Date.now(), lastRunAt: last, nextRunAt: t.enabled ? nextRun(schedule, Date.now()) : null, runs: last && t.lastOk !== null ? [{ at: last, ms: 0, ok: t.lastOk, summary: t.lastSummary ?? '', chatId: null }] : [] }
+    return { id: t.id, name: t.name, prompt: t.prompt, accountIds: t.accountIds, model: t.model, createdAt: ms(t.createdAt) ?? Date.now(), lastRunAt: last, runs: last && t.lastOk !== null ? [{ at: last, ms: 0, ok: t.lastOk, summary: t.lastSummary ?? '', chatId: null }] : [] }
   })
   persist()
   changed()
@@ -64,7 +61,7 @@ export const workerDefs = (): WorkerDef[] => all().map((d) => ({ ...d, running: 
 const changed = () => emit(workerDefs())
 
 /** Arayüzden gelen tanım alan alan doğrulanıyor. */
-function clean(raw: unknown): Omit<Stored, 'id' | 'createdAt' | 'lastRunAt' | 'nextRunAt' | 'runs'> {
+function clean(raw: unknown): WorkerInput {
   const r = (raw ?? {}) as Partial<Record<keyof WorkerInput, unknown>>
   const name = typeof r.name === 'string' ? r.name.replace(/\s+/g, ' ').trim().slice(0, 80) : ''
   const prompt = typeof r.prompt === 'string' ? r.prompt.trim().slice(0, 20_000) : ''
@@ -74,18 +71,14 @@ function clean(raw: unknown): Omit<Stored, 'id' | 'createdAt' | 'lastRunAt' | 'n
     prompt,
     accountIds: Array.isArray(r.accountIds) ? [...new Set(r.accountIds.filter((x): x is string => typeof x === 'string' && x.length < 200))].slice(0, 50) : [],
     model: typeof r.model === 'string' && r.model && r.model.length < 200 ? r.model : null,
-    schedule: cleanSchedule(r.schedule),
-    enabled: r.enabled !== false,
   }
 }
 
 export function saveWorker(id: string | null, raw: unknown): string {
   const input = clean(raw)
-  const now = Date.now()
-  const next = input.enabled ? nextRun(input.schedule, now) : null
   const old = id ? all().find((d) => d.id === id) : undefined
-  if (old) Object.assign(old, input, { nextRunAt: next })
-  else all().push({ id: (id = randomUUID()), createdAt: now, lastRunAt: null, runs: [], ...input, nextRunAt: next })
+  if (old) Object.assign(old, input)
+  else all().push({ id: (id = randomUUID()), createdAt: Date.now(), lastRunAt: null, runs: [], ...input })
   persist()
   changed()
   push(all().find((d) => d.id === id)!)
@@ -99,16 +92,6 @@ export function removeWorker(id: string) {
   void server(`/api/v1/worker/definitions?id=${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => {})
 }
 
-export function setWorkerEnabled(id: string, enabled: boolean) {
-  const d = all().find((x) => x.id === id)
-  if (!d) return
-  d.enabled = enabled
-  d.nextRunAt = enabled ? nextRun(d.schedule, Date.now()) : null
-  persist()
-  changed()
-  push(d)
-}
-
 /** Çalışmanın agent'a verilen metni: talimat + bu çalışmanın hesapları ve tarayıcıları. */
 function promptOf(d: Stored) {
   const accounts = localAccounts().filter((l) => d.accountIds.includes(l.id))
@@ -120,14 +103,12 @@ function promptOf(d: Stored) {
   ].join('\n')
 }
 
-/** Tanımı şimdi çalıştırır (düğme ya da zamanlayıcı). Zaten çalışıyorsa bir şey yapmaz. */
+/** Tanımı şimdi çalıştırır ("Çalıştır" düğmesi). Zaten çalışıyorsa bir şey yapmaz. */
 export async function runWorker(id: string) {
   const d = all().find((x) => x.id === id)
   if (!d || active.has(id)) return
   if (!apiKey()) throw new Error('signed-out')
   active.add(id)
-  // Sıradaki zamanlı çalışma başlangıçtan sayılıyor: uzun süren iş bir sonrakini kaydırmasın.
-  d.nextRunAt = d.enabled ? nextRun(d.schedule, Date.now()) : null
   changed()
   const started = Date.now()
   let run: WorkerRun
@@ -152,16 +133,7 @@ export async function runWorker(id: string) {
   void refresh()
 }
 
-/** Vakti gelen tanımlar. Uygulama kapalıyken kaçan çalışma açılışta bir kez yapılıyor. */
-function tick() {
-  if (!apiKey()) return
-  const now = Date.now()
-  for (const d of all()) if (d.enabled && d.nextRunAt !== null && d.nextRunAt <= now && !active.has(d.id)) void runWorker(d.id).catch(() => {})
-}
-
 export function startWorkers(a: Agent, onChange: (defs: WorkerDef[]) => void) {
   agent = a
   emit = onChange
-  setInterval(tick, CHECK_MS)
-  setTimeout(tick, 10_000)
 }

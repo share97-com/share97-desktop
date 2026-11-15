@@ -1,6 +1,6 @@
 /** Main, preload ve renderer arasında taşınan veri biçimleri (yalnız tipler, kod yok). */
 
-import type { Schedule } from './schedule.ts'
+import type { ContentSettings, LocalContent } from './contents.ts'
 
 /** Share97 hesabı (`GET /api/v1/worker/me`): paket, site kredisi, yapay zekâ bakiyesi ve bu cihaz (Worker). */
 export type Account = {
@@ -52,10 +52,11 @@ type OverviewFlow = { id: string; name: string; slug: string; active: boolean; w
 export type Overview = {
   /** Bu cihazın Worker kimliği. */
   me: string
-  workflows: (OverviewFlow & { timezone: string; lastRunAt: string | null; queued: number; nodes: string[] })[]
+  /** `content`: akışın içerik ayarları — kaynak (site / cihazdaki klasör), sıra, tekrar. */
+  workflows: (OverviewFlow & { timezone: string; content: ContentSettings; lastRunAt: string | null; queued: number; nodes: string[] })[]
   upcoming: { at: number; workflowId: string; name: string }[]
   runs: { id: string; status: 'running' | 'success' | 'failed' | 'skipped'; error: string | null; startedAt: string; workflow: string; handle: string | null; permalink: string | null }[]
-  workers: { id: string; name: string; hint: string; createdAt: string; lastUsedAt: string | null; online: boolean; accounts: OverviewAccount[]; workflows: OverviewFlow[]; tasks: { id: string; name: string; enabled: boolean; lastRunAt: string | null; lastOk: boolean | null }[] }[]
+  workers: { id: string; name: string; hint: string; createdAt: string; lastUsedAt: string | null; online: boolean; accounts: OverviewAccount[]; workflows: OverviewFlow[]; tasks: { id: string; name: string; lastRunAt: string | null; lastOk: boolean | null }[] }[]
   server: { accounts: OverviewAccount[]; workflows: OverviewFlow[] }
   unassigned: OverviewAccount[]
 }
@@ -71,8 +72,9 @@ export type TaskResult = { ok: boolean; summary: string; permalink?: string; dat
 export type WorkerRun = { at: number; ms: number; ok: boolean; summary: string; chatId: string | null }
 
 /**
- * **Worker tanımı**: bu cihazda çalışan programlanabilir iş. Talimat, kullanacağı hesaplar, model
- * (boşsa varsayılan sohbet modeli) ve zamanlama. Her çalışma bir sohbet süreci başlatır.
+ * **Worker tanımı**: bu cihazda **elle** çalıştırılan agent işi. Talimat, kullanacağı hesaplar ve model
+ * (boşsa varsayılan sohbet modeli). Zamanlama yok: zamanı gelince çalışan iş bir akıştır. Her çalışma
+ * bir sohbet süreci başlatır.
  */
 export type WorkerDef = {
   id: string
@@ -80,15 +82,12 @@ export type WorkerDef = {
   prompt: string
   accountIds: string[]
   model: string | null
-  schedule: Schedule
-  enabled: boolean
   createdAt: number
   lastRunAt: number | null
-  nextRunAt: number | null
   runs: WorkerRun[]
   running: boolean
 }
-export type WorkerInput = Pick<WorkerDef, 'name' | 'prompt' | 'accountIds' | 'model' | 'schedule' | 'enabled'>
+export type WorkerInput = Pick<WorkerDef, 'name' | 'prompt' | 'accountIds' | 'model'>
 
 /* ---------------- Tarayıcılar: her biri tek çerez deposu, altında sekmeler ---------------- */
 
@@ -225,7 +224,7 @@ export type Settings = {
   approval: 'risky' | 'all'
   /** Uygulamanın teması; `system` Windows'u izliyor. */
   theme: 'system' | 'light' | 'dark'
-  /** Pencere kapatılınca tepside çalışmaya devam et: zamanlanmış işler ve sunucudan gelen akış işleri sürsün. */
+  /** Pencere kapatılınca tepside çalışmaya devam et: sunucudan gelen akış işleri sürsün. */
   background: boolean
   /** Bilgisayar açılınca (gizli) başlat. */
   autostart: boolean
@@ -352,12 +351,18 @@ export type Api = {
     setWorker(id: string, workerId: string | null): Promise<void>
     /** Sunucuda şimdi çalıştırır; dönen durum `success` | `failed` | `skipped`. */
     run(id: string): Promise<{ status: string; error: string | null }>
+    /** İçerik ayarları (kaynak, sıra, tekrar). Kaynak bu cihazın klasörüyse `workerId` ile akış bu cihaza atanır. */
+    setContent(id: string, content: ContentSettings, workerId?: string): Promise<void>
+    /** Akışın bu cihazdaki içerik klasörleri (`workflow/<id>/contents/1, 2, 3…`) ve durumları. */
+    contents(id: string): Promise<LocalContent[]>
+    openContents(id: string): Promise<void>
+    /** İçeriği bu cihazın klasöründen alan yeni bir taslak akış (klasörü örnek içerikle kurulur). */
+    createLocal(name: string): Promise<void>
   }
   workers: {
     list(): Promise<WorkerDef[]>
     save(id: string | null, input: WorkerInput): Promise<string>
     remove(id: string): Promise<void>
-    setEnabled(id: string, enabled: boolean): Promise<void>
     run(id: string): Promise<void>
     activity(): Promise<ActivityEntry[]>
     onChange(cb: (defs: WorkerDef[]) => void): () => void
