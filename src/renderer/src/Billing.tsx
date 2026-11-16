@@ -2,7 +2,7 @@ import { Coins, Crown, RefreshCw, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Account } from '../../shared/types.ts'
 import { api } from './hooks.ts'
-import { cost, t } from './i18n.ts'
+import { cost, dateTime, t } from './i18n.ts'
 import { button, Card, iconButton, Page, Pill, primary } from './ui.tsx'
 
 export const planLabel = (plan: string) => t.plans[plan] ?? plan
@@ -10,8 +10,8 @@ export const planLabel = (plan: string) => t.plans[plan] ?? plan
 export const creditText = (a: Account) => (a.credits.unlimited ? '∞' : String(a.credits.total))
 
 /**
- * **Paket ve kredi.** Ücretsiz ve Pro paket, günlük hak, ek kredi ve krediden bozdurulan yapay zekâ
- * bakiyesi. Satın alma sitenin faturalama sayfasında (Stripe), bu cihazın oturumuyla ayrı pencerede.
+ * **Paket ve kredi.** Paket, günlük hak, ek site kredisi ve yapay zekâ kredisi (USD, abonelik her ay yeniliyor,
+ * yükleme 30 gün). Satın alma sitenin faturalama sayfasında (Stripe), bu cihazın oturumuyla ayrı pencerede.
  */
 export function Billing({ account: a }: { account: Account }) {
   const [busy, setBusy] = useState(false)
@@ -113,11 +113,16 @@ export function Billing({ account: a }: { account: Account }) {
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-xs text-muted">{t.bill.ai}</p>
-            <p className="figure text-[2.6rem] tabular-nums">{cost.format(a.ai.balanceUsd)}</p>
+            <p className="figure text-[2.6rem] tabular-nums">{a.ai.unlimited ? t.unlimited : cost.format(a.ai.balanceUsd)}</p>
+            {a.ai.expiresAt && !a.ai.unlimited && <p className="text-xs text-muted">{t.bill.aiExpires(dateTime.format(new Date(a.ai.expiresAt)))}</p>}
           </div>
           {!a.ai.enabled ? <Pill tone="warn">{t.bill.aiOff}</Pill> : !a.ai.canSpend && <Pill tone="bad">{t.insufficient}</Pill>}
+          {/* Abonelik kademeleri ve serbest tutarlı yükleme sitenin faturalama sayfasında (Stripe). */}
+          <button className={primary} onClick={billing}>
+            {t.bill.aiTopup}
+          </button>
         </div>
-        <p className="mt-3 text-sm text-muted">{t.bill.aiHint(cost.format(a.ai.creditUsd))}</p>
+        <p className="mt-3 text-sm text-muted">{t.bill.aiHint}</p>
         {a.ai.balanceUsd < 0 && <p className="mt-1 text-sm text-danger">{t.bill.aiDebt}</p>}
         <p className="mt-1 text-xs text-muted">{t.bill.prices}</p>
       </Card>

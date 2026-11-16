@@ -9,10 +9,10 @@ export type Account = {
   name: string | null
   /** `free` | `pro` */
   plan: string
-  /** Site kredisi: günlük hak, bugün kalan, satın alınmış ek kredi. Yapay zekâ harcaması da buradan düşüyor. */
+  /** Site kredisi (yayın): günlük hak, bugün kalan, satın alınmış ek kredi. */
   credits: { daily: number; remaining: number; extra: number; total: number; unlimited: boolean }
-  /** Krediden bozdurulan yapay zekâ bakiyesi (USD), bir kredinin karşılığı ve sitenin marjı. */
-  ai: { enabled: boolean; marginPercent: number; creditUsd: number; balanceUsd: number; canSpend: boolean }
+  /** Yapay zekâ kredisi (USD): kalan, en yakın bitiş (ISO), sitenin marjı. Abonelik her ay yeniliyor, yükleme 30 gün. */
+  ai: { enabled: boolean; marginPercent: number; balanceUsd: number; expiresAt: string | null; unlimited: boolean; canSpend: boolean }
   /** Paketin sınırları; `null` sınırsız. */
   limits: { maxAccounts: number | null; maxWorkflows: number | null }
   worker: { id: string; name: string } | null
