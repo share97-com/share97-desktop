@@ -1,19 +1,22 @@
-import { Check, ExternalLink, FolderOpen, Loader2, LogIn, MessageSquare, Monitor, Pencil, Play, Plus, RefreshCw, RotateCcw, Server, Sparkles, Trash2, X } from 'lucide-react'
+import { Bot, Check, ExternalLink, FolderOpen, Loader2, LogIn, MessageSquare, MessagesSquare, Monitor, Pencil, Play, Plus, RefreshCw, RotateCcw, Server, Sparkles, Trash2, UserPlus, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { isExample, isPartial, MAX_GENERATE, type ContentSettings, type GenerateInput, type LocalContent } from '../../shared/contents.ts'
+import { isExample, isPartial, MAX_GENERATE, usesContents, type ContentSettings, type GenerateInput, type LocalContent } from '../../shared/contents.ts'
 import { platformOf } from '../../shared/platforms.ts'
-import type { Overview, Schedule, SocialAccount } from '../../shared/types.ts'
+import { FLOW_TEMPLATES, type FlowTemplate, type Overview, type Schedule, type SocialAccount } from '../../shared/types.ts'
 import { ConfirmButton } from './Confirm.tsx'
-import { api, errorText, useActivity, useConnections } from './hooks.ts'
+import { api, errorText, useActivity, useChats, useConnections } from './hooks.ts'
 import { dateTime, t } from './i18n.ts'
 import { toast } from './Toast.tsx'
 import { button, Card, Field, iconButton, input, Modal, Page, Pill, PlatformBadge, primary, serverError, Switch } from './ui.tsx'
 
 const when = (v: string | number | null) => (v ? dateTime.format(new Date(v)) : t.never)
 
+const TEMPLATE_ICON: Record<FlowTemplate, typeof Bot> = { post: FolderOpen, aiPost: Sparkles, reply: MessagesSquare, follow: UserPlus, task: Bot }
+
 /**
- * **Akışlar.** Sunucudaki akışlar (web ile aynı kayıt), bu cihazla eşitlenir (kendiliğinden ve "Eşitle"
- * düğmesiyle): aç/durdur, yeniden adlandır, sil, çalıştıracak cihazı seç, şimdi çalıştır; içerik ayarları
+ * **Akışlar.** Tanımı sunucuda duran (web ile aynı kayıt), **bu uygulamanın çalıştırdığı** akışlar: hazır akışlar
+ * (tek tıkla: paylaşım, yanıt, takip, agent görevi), agent görevinin metni, çalışma geçmişi (atlananın nedeni ve işin
+ * sohbeti); eşitlenir (kendiliğinden ve "Eşitle" düğmesiyle): aç/durdur, yeniden adlandır, sil, çalıştıracak cihazı seç, şimdi çalıştır; içerik ayarları
  * (sıra, tekrar), zamanlama ve paylaşılacak hesaplar, bu cihazdaki içerik klasörleri (ekle, yeniden sıraya al,
  * uyarılar) ve yapay zekâ ile içerik üretimi; sıradaki yuvalar, son
  * çalışmaların sonucu, hesaba bağlı bütün cihazlar (Worker'lar; bu bilgisayar en başta, vurgulu) ve bu
@@ -22,6 +25,7 @@ const when = (v: string | number | null) => (v ? dateTime.format(new Date(v)) : 
 export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void }) {
   const state = useConnections()
   const activity = useActivity()
+  const chats = useChats()
   const [busy, setBusy] = useState<string | null>(null)
   const ov = state?.overview
   const act = (key: string, p: Promise<unknown>, done?: (v: unknown) => void) => {
@@ -41,9 +45,6 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
           {state?.syncedAt ? <span className="text-xs tabular-nums text-muted">{t.flows.synced(when(state.syncedAt))}</span> : null}
           <button className={button} disabled={busy === 'refresh'} onClick={() => act('refresh', api().connections.refresh(true), () => toast(t.flows.syncDone))}>
             <RefreshCw className={`size-4 ${busy === 'refresh' ? 'animate-spin' : ''}`} /> {t.flows.sync}
-          </button>
-          <button className={button} disabled={busy === 'local'} onClick={() => act('local', api().workflows.createLocal(t.flows.localName), () => toast(t.flows.localCreated))}>
-            <FolderOpen className="size-4" /> {t.flows.createLocal}
           </button>
           <button className={primary} onClick={() => void api().site.open('/workflows')}>
             <Plus className="size-4" /> {t.flows.create}
@@ -80,13 +81,22 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
         !state?.error && <Loader2 className="size-5 animate-spin text-muted" />
       ) : (
         <>
-          <label className="flex items-start gap-3 rounded-lg border border-line bg-panel/80 p-3 text-sm">
-            <Switch on={ov.serialRuns !== false} label={t.flows.serial} disabled={busy === 'serial'} onChange={(on) => act('serial', api().workflows.setSerial(on))} />
-            <span>
-              {t.flows.serial}
-              <span className="block text-xs text-muted">{t.flows.serialHint}</span>
-            </span>
-          </label>
+          <Card>
+            <h2 className="text-[1.75rem]">{t.flows.templates}</h2>
+            <p className="mb-3 mt-0.5 text-xs text-muted">{t.flows.templatesHint}</p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {FLOW_TEMPLATES.map((id) => {
+                const Icon = TEMPLATE_ICON[id]
+                return (
+                  <button key={id} type="button" disabled={busy !== null} className="flex flex-col items-start gap-1.5 rounded-lg border border-line p-3 text-left transition-colors duration-[var(--dur-micro)] hover:border-brand disabled:opacity-60" onClick={() => act(`tpl-${id}`, api().workflows.createLocal(t.flows.template[id].name, id), () => toast(t.flows.templateCreated(t.flows.template[id].name)))}>
+                    {busy === `tpl-${id}` ? <Loader2 className="size-4 animate-spin text-brand" /> : <Icon className="size-4 text-brand" strokeWidth={1.5} />}
+                    <span className="text-sm font-medium">{t.flows.template[id].name}</span>
+                    <span className="text-xs text-muted">{t.flows.template[id].hint}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </Card>
           {!ov.workflows.length && (
             <Card className="text-center">
               <p className="text-sm text-muted">{t.flows.empty}</p>
@@ -121,7 +131,7 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
                   onClick={() =>
                     act(w.id, api().workflows.run(w.id), (r) => {
                       const out = r as { status: string; error: string | null }
-                      toast(`${w.name}: ${t.flows.runStatus[out.status] ?? out.status}${out.error ? `, ${out.error}` : ''}`, out.status === 'failed' ? 'error' : 'ok')
+                      toast(`${w.name}: ${t.flows.runStatus[out.status] ?? out.status}${out.error ? `: ${out.error}` : ''}`, out.status === 'success' ? 'ok' : 'error')
                     })
                   }
                 >
@@ -135,7 +145,8 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
                 </ConfirmButton>
               </div>
               <ScheduleRow w={w} accounts={state?.accounts ?? []} disabled={busy === w.id} onSchedule={(s) => act(w.id, api().workflows.setSchedule(w.id, s), () => toast(t.flows.scheduleSaved))} onAccounts={(ids) => act(w.id, api().workflows.setAccounts(w.id, ids))} />
-              <ContentRow w={w} ov={ov} platforms={(state?.accounts ?? []).filter((a) => w.accountIds.includes(a.id)).map((a) => a.platform)} syncedAt={state?.syncedAt ?? 0} disabled={busy === w.id} onChange={(content) => act(w.id, api().workflows.setContent(w.id, content))} onUseThisDevice={() => act(w.id, api().workflows.setWorker(w.id, ov.me))} />
+              {w.instruction !== null && <TaskRow key={w.instruction} value={w.instruction} disabled={busy === w.id} onSave={(text) => act(w.id, api().workflows.setInstruction(w.id, text), () => toast(t.flows.taskSaved))} />}
+              {usesContents(w.nodes) && <ContentRow w={w} ov={ov} platforms={(state?.accounts ?? []).filter((a) => w.accountIds.includes(a.id)).map((a) => a.platform)} syncedAt={state?.syncedAt ?? 0} disabled={busy === w.id} onChange={(content) => act(w.id, api().workflows.setContent(w.id, content))} onUseThisDevice={() => act(w.id, api().workflows.setWorker(w.id, ov.me))} />}
               </div>
             ))}
           </div>
@@ -170,9 +181,16 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
                           <ExternalLink className="size-3.5" />
                         </a>
                       )}
+                      {r.chatIds
+                        .filter((id) => chats.some((c) => c.id === id))
+                        .map((id) => (
+                          <button key={id} className="shrink-0 text-brand" title={t.openChat} aria-label={t.openChat} onClick={() => onOpenChat(id)}>
+                            <MessageSquare className="size-3.5" />
+                          </button>
+                        ))}
                       <span className="shrink-0 text-xs tabular-nums text-muted">{when(r.startedAt)}</span>
                     </div>
-                    {r.error && <p className="mt-0.5 line-clamp-2 text-xs text-danger">{r.error}</p>}
+                    {r.error && <p className={`mt-0.5 line-clamp-3 text-xs ${r.status === 'skipped' ? 'text-warn' : 'text-danger'}`}>{r.error}</p>}
                   </li>
                 ))}
               </ul>
@@ -217,6 +235,25 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
 }
 
 /** Akışın adı; kalem düğmesiyle yerinde değiştirilir (Enter kaydeder, Esc vazgeçer). */
+/** Agent düğümünün görevi: akış her çalıştığında agent bu talimatı hesabın tarayıcısında yapar. */
+function TaskRow({ value, disabled, onSave }: { value: string; disabled: boolean; onSave(text: string): void }) {
+  const [text, setText] = useState(value)
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <label className="flex items-center gap-2 text-xs text-muted">
+        <Bot className="size-3.5" strokeWidth={1.5} /> {t.flows.task}
+      </label>
+      <textarea className={`${input} mt-1.5 min-h-20 text-sm`} value={text} maxLength={4000} disabled={disabled} placeholder={t.flows.taskPlaceholder} onChange={(e) => setText(e.target.value)} />
+      <div className="mt-1.5 flex items-center gap-3">
+        <p className="min-w-0 flex-1 text-xs text-muted">{t.flows.taskHint}</p>
+        <button className={button} disabled={disabled || text === value || !text.trim()} onClick={() => onSave(text.trim())}>
+          <Check className="size-3.5" /> {t.save}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function FlowName({ name, disabled, onRename }: { name: string; disabled: boolean; onRename(name: string): void }) {
   const [draft, setDraft] = useState<string | null>(null)
   if (draft === null)

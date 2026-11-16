@@ -11,7 +11,9 @@ Most social media schedulers post only through official APIs, which leaves out p
 ## Features
 
 - **AI agent for social media**: publishes posts, Reels, Shorts and pins, writes first comments, replies, follows and collects data (followers, post engagement) in the account's own browser.
-- **Social media scheduler and auto posting**: drag-and-drop workflows on share97.com publish your queue on the days and hours you choose; this computer picks up the jobs and reports every result.
+- **Social media scheduler and auto posting**: workflows run on this computer on the days, hours or interval you choose (every N hours); every run is logged on share97.com with its result, and a skipped run says why.
+- **AI agent workflows**: one click creates a ready workflow (auto posting, AI posting, auto reply, follow accounts, or your own agent task). The agent node does any instruction on your account on schedule.
+- **Run it from chat**: write what you want ("share this on X", "reply to today's comments", "do this every 3 hours") and the agent does it in the right account, or sets it up as a workflow. Every workflow job opens as a chat you can watch live.
 - **AI content generation**: when the queue runs dry, AI writes the caption and image for the next post, in up to 15 languages.
 - **Multiple accounts and profiles**: add several profiles per platform, group them, and run each in its own isolated browser with its own cookies.
 - **Chrome extension**: let the agent work in tabs of your everyday Google Chrome, where you are already signed in.

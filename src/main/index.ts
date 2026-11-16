@@ -15,6 +15,8 @@ import * as backup from './backup.ts'
 import * as bookmarks from './bookmarks.ts'
 import * as chrome from './chrome/index.ts'
 import { addContent, createLocalWorkflow, generateContents, listContents, openContents, requeueContent } from './contents.ts'
+import { runNow } from './runner.ts'
+import { isFlowTemplate } from '../shared/types.ts'
 import * as downloads from './downloads.ts'
 import * as extensions from './extensions.ts'
 import * as passwords from './passwords.ts'
@@ -137,7 +139,11 @@ function createWindow() {
     },
     chats: (l) => send('agent:chats', l),
   })
-  startDevice(agent, (list) => send('activity:changed', list), showWindow)
+  // Akış işi başlayınca sohbet ekranı o işin sohbetinde açılır: kullanıcı ne yapıldığını canlı görür.
+  startDevice(agent, (list) => send('activity:changed', list), showWindow, (chatId) => {
+    browsers?.activate(null)
+    send('app:openChat', chatId)
+  })
   ws.onFilesChange(() => send('files:changed'))
   onSettingsChange((s) => {
     nativeTheme.themeSource = s.theme
@@ -270,17 +276,13 @@ function registerIpc() {
     await accounts.syncAccounts()
   }
   handle('workflows:setActive', (id, on) => flow(id, { active: on === true }))
-  handle('workflows:setSerial', async (on) => {
-    await auth.server('/api/v1/worker/me', { method: 'PATCH', body: { serialRuns: on === true } })
-    await accounts.syncAccounts()
-  })
   handle('workflows:setWorker', (id, workerId) => flow(id, { workerId: workerId === null ? null : str(workerId, 200) }))
+  // Akışı bu uygulama çalıştırır; güncel tanımıyla çalışsın diye önce eşitlenir. Sonuç iş bitince döner (agent dakikalarca çalışabilir).
   handle('workflows:run', async (id) => {
-    // Sunucu, akışın cihazdaki işinin bitmesini bekliyor (agent dakikalarca çalışabilir): olağan 30 sn yetmez.
-    const out = await auth.server<{ status: string; error: string | null }>(`/api/v1/worker/workflows/${encodeURIComponent(str(id, 200))}/run`, { body: {}, timeoutMs: 25 * 60_000 })
     await accounts.syncAccounts()
-    return { status: out.status, error: out.error }
+    return runNow(str(id, 200))
   })
+  handle('workflows:setInstruction', (id, text) => flow(id, { instruction: str(text, 4000) }))
 
   handle('workflows:setContent', (id, raw) => {
     const c = (raw ?? {}) as { order?: unknown; repeat?: unknown }
@@ -311,10 +313,10 @@ function registerIpc() {
     await accounts.syncAccounts()
   })
   // Metin ve görsel üretimi dakikalar sürebilir; sonuç klasöre yazılır.
-  handle('workflows:generate', (id, input) => generateContents(str(id, 200), flowName(str(id, 200)), input))
+  handle('workflows:generate', async (id, input) => (await generateContents(str(id, 200), flowName(str(id, 200)), input)).length)
   const flowName = (id: string) => accounts.connectionsState().overview?.workflows.find((w) => w.id === id)?.name ?? id
-  handle('workflows:createLocal', async (name) => {
-    await createLocalWorkflow(str(name, 120))
+  handle('workflows:createLocal', async (name, template) => {
+    await createLocalWorkflow(str(name, 120), isFlowTemplate(template) ? template : 'post')
     await accounts.syncAccounts()
   })
   handle('workflows:contents', (id) => listContents(str(id, 200)))

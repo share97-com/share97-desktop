@@ -46,7 +46,7 @@ test('eski sürümün yalnız metinli örneği tamamlanır; kullanıcının dosy
 })
 
 test('içerik üretimi yeni numaralı klasörler yazar; akış sırayla alır, sonucu status.txt gösterir', async () => {
-  assert.equal(await c.generateContents('wf1', 'Deneme', { from: '1', topic: 'kısa', count: 2, withImage: true }), 2)
+  assert.deepEqual(await c.generateContents('wf1', 'Deneme', { from: '1', topic: 'kısa', count: 2, withImage: true }), ['2', '3'])
   assert.match(calls[0].body.messages![1].content, /benim metnim/, 'örnek içerik modele gidiyor')
   assert.equal(calls.filter((x) => x.path === 'images/generations').length, 2)
   const items = await c.listContents('wf1')

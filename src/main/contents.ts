@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { app, shell } from 'electron'
-import type { Overview } from '../shared/types.ts'
-import { contentWarnings, mediaName, EXAMPLE_NOTE, MAX_CAPTION, MAX_MEDIA, resultNote, stalePublishing, generationMessages, isContentFolder, isExample, isWorkflowId, MAX_GENERATE, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type ContentSettings, type ContentStatus, type GenerateInput, type LocalContent, type LocalMedia } from '../shared/contents.ts'
+import type { FlowTemplate, Overview } from '../shared/types.ts'
+import { contentWarnings, mediaName, EXAMPLE_NOTE, MAX_CAPTION, MAX_MEDIA, resultNote, stalePublishing, generationMessages, isContentFolder, usesContents, isExample, isWorkflowId, MAX_GENERATE, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type ContentSettings, type ContentStatus, type GenerateInput, type LocalContent, type LocalMedia } from '../shared/contents.ts'
 import { server } from './auth.ts'
 import { IMAGE_MODEL } from './auto.ts'
 import { apiJson } from './gateway.ts'
@@ -15,7 +15,7 @@ import * as ws from './workspace.ts'
 /**
  * **Akışların yerel içerikleri** (bkz. `shared/contents.ts`). İçerik yalnız cihazda duruyor: bu cihaza
  * atanmış her akışın bir klasörü var: `<çalışma klasörü>/workflow/<akış kimliği>/contents/1, 2, 3…`.
- * Akış çalışınca sunucu sıradaki içeriği buradan istiyor (`takeContent`); yayını yine bu cihazdaki agent
+ * Akışı bu uygulama çalıştırıyor (`runner.ts`): sıradaki içerik buradan alınıyor (`takeContent`), yayını agent
  * yapıyor ve sonucu klasörün `status.txt`ine yazıyor. Dosyalar cihazdan çıkmıyor.
  */
 
@@ -196,9 +196,9 @@ export function contentFiles(workflowId: string, folder: string, urls: string[])
  * **Yapay zekâ ile içerik üretimi.** Bir içerik örnek alınarak (`from`) ya da yalnız konudan, akışın klasörüne
  * yeni numaralı içerikler yazılır: metin (`content.txt`), istenirse bir görsel (`image.png`) ve `pending`
  * durumu. Her biri özgün bir paylaşımdır (bkz. `generationMessages`). Metin ve görsel Share97 geçidiyle
- * üretilir (bedeli krediden). Dönüş: yazılan içerik sayısı.
+ * üretilir (bedeli krediden). Dönüş: yazılan içerik klasörleri.
  */
-export async function generateContents(workflowId: string, name: string, raw: unknown): Promise<number> {
+export async function generateContents(workflowId: string, name: string, raw: unknown): Promise<string[]> {
   const r = (raw ?? {}) as Partial<Record<keyof GenerateInput, unknown>>
   const from = typeof r.from === 'string' && isContentFolder(r.from) ? r.from : null
   const topic = typeof r.topic === 'string' ? r.topic.slice(0, 2000) : ''
@@ -211,7 +211,7 @@ export async function generateContents(workflowId: string, name: string, raw: un
   if (!posts.length) throw new Error('The model returned no usable post. Try again or choose another chat model in Settings.')
 
   const root = await ensureContents(workflowId, name)
-  let made = 0
+  const made: string[] = []
   for (const post of posts) {
     // Görsel önce üretilir: düşerse yarım (görselsiz) bir içerik klasörü kalmaz.
     let image: Uint8Array | null = null
@@ -219,14 +219,15 @@ export async function generateContents(workflowId: string, name: string, raw: un
       const img = await apiJson<{ data?: { url?: string; b64_json?: string }[] }>('images/generations', { model: settings().imageModel ?? IMAGE_MODEL, prompt: post.imagePrompt || post.caption.slice(0, 500), n: 1 })
       const first = img.data?.[0]
       image = first?.b64_json ? Buffer.from(first.b64_json, 'base64') : first?.url ? new Uint8Array(await (await fetch(first.url, { signal: AbortSignal.timeout(120_000) })).arrayBuffer()) : null
-      if (!image?.length) throw new Error(`The image model returned no image (${made} content(s) were created).`)
+      if (!image?.length) throw new Error(`The image model returned no image (${made.length} content(s) were created).`)
     }
-    const folder = join(root, nextFolder((await readdir(root)).filter(isContentFolder)))
+    const number = nextFolder((await readdir(root)).filter(isContentFolder))
+    const folder = join(root, number)
     await mkdir(folder)
     await writeFile(join(folder, 'content.txt'), `${post.caption}\r\n`)
     if (image) await writeFile(join(folder, 'image.png'), image)
     await writeFile(join(folder, STATUS), statusText('pending', `${stamp()} generated${from ? ` from ${from}` : ''}`))
-    made++
+    made.push(number)
   }
   ws.changed()
   return made
@@ -238,8 +239,8 @@ export const openContents = async (workflowId: string, name: string) => void (aw
 
 const exampleName = () => (app.getLocale().toLowerCase().startsWith('tr') ? 'Örnek akış' : 'Example workflow')
 
-/** Sunucuda bu cihaza atanmış, durdurulmuş bir taslak akış açar; içerik klasörü bir sonraki eşitlemede kurulur. */
-export const createLocalWorkflow = (name: string) => server('/api/v1/worker/workflows', { body: { name, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } })
+/** Sunucuda bu cihaza atanmış, cihazdaki hesaplarla dolu, durdurulmuş hazır bir akış açar (`template`, bkz. `shared/types.ts`); içerik klasörü bir sonraki eşitlemede kurulur. */
+export const createLocalWorkflow = (name: string, template: FlowTemplate = 'post') => server<{ id: string }>('/api/v1/worker/workflows', { body: { name, template, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } })
 const file = () => dataPath('workflows.json')
 
 /**
@@ -250,7 +251,7 @@ const file = () => dataPath('workflows.json')
  */
 export async function syncContents(ov: Overview): Promise<boolean> {
   for (const w of ov.workflows)
-    if (w.workerId === ov.me && w.nodes.includes('queue'))
+    if (w.workerId === ov.me && usesContents(w.nodes))
       await ensureContents(w.id, w.name)
         .then(() => recoverStale(w.id))
         .catch((e) => console.error('[contents]', (e as Error).message))

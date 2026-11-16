@@ -18,6 +18,9 @@ export type LocalMedia = { file: string; kind: 'image' | 'video' }
 /** `note`: `status.txt`in ikinci satırı (tarih, gönderinin adresi ya da hata). */
 export type LocalContent = { folder: string; caption: string; media: LocalMedia[]; status: ContentStatus; note: string; warnings: ContentWarning[] }
 
+/** İçerik klasörü olan akış mı (`queue` ya da `generate` düğümü): klasörü kurulur, ekranda içerik bölümü görünür. Görev akışında (yalnız agent) klasör yok. */
+export const usesContents = (nodes: string[]) => nodes.includes('queue') || nodes.includes('generate')
+
 /** Akışa giden metin ve dosya sayısının üst sınırı; fazlası kesilir (kullanıcı `warnings` ile uyarılır). */
 export const MAX_CAPTION = 5000
 export const MAX_MEDIA = 20

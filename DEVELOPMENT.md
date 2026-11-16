@@ -16,7 +16,7 @@ npm run dist       # Windows kurulum dosyası: dist/
 | --- | --- |
 | **Sohbet** | Agent ile sohbet: plan, araç çağrıları, onay kartları, dosyalar. Yazma kutusunun üstünde bu cihazdaki hesaplar işaretlenir; işaretlenen her hesap için agent o hesabın tanımlı olduğu tarayıcıda (ya da Chrome'da) çalışır. Akış işleri de burada sohbet süreci olarak görünür. |
 | **Bağlantılar** | Bütün sosyal medya hesapları tek listede; platforma, kendi grubuna, cihaza ya da duruma göre gruplanır. Hesap ekleme, yeniden giriş, grup verme, kaldırma. |
-| **Akışlar** | Sunucudaki akışlar (web ile aynı kayıt): aç/durdur, çalıştıracak cihazı seç, şimdi çalıştır; sıradaki yuvalar, son çalışmaların sonucu, bu cihazın etkinlik günlüğü ve hesaba bağlı bütün cihazlar. Düzenleme sitenin düzenleyicisinde açılır. |
+| **Akışlar** | Tanımı sunucuda duran, bu uygulamanın çalıştırdığı akışlar: hazır akışlar (tek tıkla), agent görevi, aç/durdur, çalıştıracak cihazı seç, şimdi çalıştır; sıradaki yuvalar, son çalışmaların sonucu, bu cihazın etkinlik günlüğü ve hesaba bağlı bütün cihazlar. Düzenleme sitenin düzenleyicisinde açılır. |
 | **Chrome** | `share97-chrome` eklentisiyle bağlanan Chrome profilleri. |
 | **Yedekler** | Bütün ayarlar ve tarayıcı çerezleri tek `.share97` dosyasında (brotli ile sıkıştırılmış), `Belgeler\Share97\Yedekler` altında: yeni yedek, var olanı güncelle, klasörde göster, dosyadan ekle, geri yükle (önce bugünkü durum ayrıca yedeklenir). `src/main/backup.ts`. |
 | **Paket ve kredi** | Ücretsiz / Pro paket, günlük hak, ek kredi, yapay zekâ bakiyesi; satın alma sitenin faturalama sayfasında. |
@@ -45,22 +45,30 @@ Oturumlar cihazdan çıkmaz; sunucuda yalnız hesabın adı ve bu cihaza bağlı
 
 ## Bu kurulum bir Worker
 
-`src/main/device.ts`: uygulama 15 saniyede bir `POST /api/v1/worker/poll` ile iş alır. Sunucudaki akış bir paylaşımı ya da talimatı bu cihazdaki bir hesaba gönderdiğinde agent işi hesabın tarayıcısında yapar (`Agent.task`, sonuç `finish_task` ile), sonuç `POST /api/v1/worker/jobs/<id>` ile sunucuya yazılır ve sitede akışın çalışmasında görünür. İş yalnız hesabın bağlantıda tanımlı tarayıcısında (çerezleri taşıyan uygulama tarayıcısı ya da Chrome profili) çalışır: tarayıcı iş başlamadan açılır ve agent ona kilitlenir (`Ctx.only`, `lockProblem`): başka tarayıcı kullanamaz, yenisini açamaz. Tarayıcıya erişilemiyorsa (oturum düşmüş, Chrome kapalı) iş başlamaz, `expired` bildirilir ve kullanıcı uyarılır: Windows bildirimi (tıklayınca hesabın tarayıcısı giriş ekranında açılır) ve Akışlar ekranında "Yeniden giriş yap" düğmeli uyarı.
+**Akışları bu uygulama çalıştırır; sunucuda yalnız denetim ve kayıt durur.** Akışın tanımı (graf, zamanlama, hesaplar, açık/kapalı, hangi cihaz) sunucudadır ve sitedeki düzenleyiciyle aynıdır; zamanı gelen akışı ise **bu cihaz** yürütür (`src/main/runner.ts`, saf motoru `src/shared/workflow.ts`): grafı yürür, içeriği kendi klasöründen alır, her hesaptaki işi agent'a yaptırır ve çalışmayı adım adım sunucuya yazar (`POST /api/v1/worker/runs` → `PATCH /api/v1/worker/runs/<id>` → `POST …/publications`). Sunucu cihaza iş göndermez.
+
+- **Zamanlama** (`schedule`, `dueSlot`): `src/main/device.ts` 15 saniyede bir yoklar (`POST /api/v1/worker/poll`: cihaz canlı işaretlenir, siteden istenen "Şimdi çalıştır"lar gelir) ve bu cihaza atanmış, açık her akışın son bakıştan bu yana saati gelen yuvasını başlatır. Uygulama kapalıyken kaçan yuvalar dönüşte **bir kez** telafi edilir (yalnız sonuncusu, bir günden eskisi değil). Aynı yuvayı sunucu ikinci kez açtırmaz (`409`): iki cihaz ya da yeniden başlayan uygulama çift paylaşım yapmaz.
+- **Her hesap işi bir sohbet sürecidir** (`Agent.task`): iş başladığı anda sohbet ekranı o sohbette açılır (hesabın tarayıcısı da), kullanıcı agent'ın ne yaptığını canlı izler. Çalışma kaydı sohbete bağlıdır (`chatIds`): Akışlar ekranındaki "Son çalışmalar" ve etkinlik günlüğü işin sohbetini açar.
+- **İş yalnız hesabın bağlantıda tanımlı tarayıcısında** (çerezleri taşıyan uygulama tarayıcısı ya da Chrome profili) çalışır: tarayıcı iş başlamadan açılır ve agent ona kilitlenir (`Ctx.only`, `lockProblem`). Tarayıcıya erişilemiyorsa (oturum düşmüş, Chrome kapalı) iş başlamaz, hesap sunucuya `expired` bildirilir ve kullanıcı uyarılır: Windows bildirimi (tıklayınca giriş ekranı açılır) ve Akışlar ekranında "Yeniden giriş yap" uyarısı.
+- **Atlanan çalışma nedenini yazar** (`skipReason`): hiçbir hesapta iş yapılmadıysa neden çalışma kaydına ve ekrana yazılır (klasörde içerik kalmadı, içerik hesap adımına ulaşmadı, içerik adımı yalnız hata çıkışından bağlı…). Hesaba ulaşmayan içerik yanmaz: `pending`e döner, nedeni notunda.
+- **Agent düğümü** (`agent`): seçilen hesapta yazılan görevi yapar (yanıtla, takip et, beğen, veri topla, paylaş…); içerik gerekmez, zamanlamaya doğrudan bağlanır. Yayın düğümleri içerik gelince paylaşır. Her hesap işi bir site kredisidir.
+- **Hazır akışlar** (Akışlar ekranı, tek tıkla; `POST /api/v1/worker/workflows {template}`): otomatik paylaşım (`post`), yapay zekâ ile paylaşım (`aiPost`), otomatik yanıt (`reply`, 3 saatte bir), hesapları takip et (`follow`), boş agent görevi (`task`). Cihazdaki hesaplar ve zamanlama dolu, durdurulmuş açılır; görev metni ekranda düzenlenir (`PATCH … {instruction}`).
+- **Sohbetten yönetim**: agent kullanıcının sosyal medya yöneticisidir. "Şunu paylaş / yorumları yanıtla" dendiğinde hesabın tarayıcısında hemen yapar; "her gün / 3 saatte bir" dendiğinde `create_workflow` ile akış kurar (`update_workflow`, `run_workflow`, `list_workflows`).
 
 
-**İçerik yalnız bu bilgisayarda** (`src/main/contents.ts`, saf kısmı `src/shared/contents.ts`): sitede içerik alanı yoktur. Bu cihaza atanmış, kuyruktan içerik alan her akışın bir klasörü vardır: `<kullanıcı klasörü>/share97-desktop/workflow/<akış kimliği>/contents/1, 2, 3…`. Her numaralı klasör bir içeriktir: bir metin dosyası (açıklama), görseller ya da videolar ve durumu gösteren `status.txt` (`pending` · `publishing` · `published` · `failed`; ikinci satır not). Akış çalışınca sunucu sıradaki içeriği yoklamayla ister (`poll` yanıtındaki `content`); cihaz `pending` olanlardan sıradakini ya da rastgele birini seçer (akışın ayarı), `publishing` yazar ve metni + dosya adlarını bildirir (`POST /api/v1/worker/content/<id>`). Yayını yine bu cihazdaki agent yapar (dosyalar klasörden yüklenir, sunucuya çıkmaz) ve sonuç `status.txt`e yazılır: `published` olan bir daha alınmaz; yeniden paylaşmak için `pending` yazılır. Tekrar açıksa hepsi paylaşılınca baştan başlar.
+**İçerik yalnız bu bilgisayarda** (`src/main/contents.ts`, saf kısmı `src/shared/contents.ts`): sitede içerik alanı yoktur. Bu cihaza atanmış, içerik kullanan (`queue` ya da `generate` düğümü) her akışın bir klasörü vardır: `<kullanıcı klasörü>/share97-desktop/workflow/<akış kimliği>/contents/1, 2, 3…`. Her numaralı klasör bir içeriktir: bir metin dosyası (açıklama), görseller ya da videolar ve durumu gösteren `status.txt` (`pending` · `publishing` · `published` · `failed`; ikinci satır not). Akış çalışınca `queue` düğümü `pending` olanlardan sıradakini ya da rastgele birini seçer (akışın ayarı) ve `publishing` yazar; `generate` düğümü konudan yeni bir içerik klasörü üretir. Yayını agent yapar (dosyalar klasörden yüklenir, sunucuya çıkmaz) ve sonuç `status.txt`e yazılır: `published` olan bir daha alınmaz; yeniden paylaşmak için `pending` yazılır. Tekrar açıksa hepsi paylaşılınca baştan başlar.
 
 **Standart dosya adları** (`mediaName`): `content.txt`, `image.<uzantı>`, `video.<uzantı>` (aynı türden birden çok: `image-1`, `image-2`…), `status.txt`. Uygulamanın yazdığı her dosya (örnek, eklenen, üretilen) bu adları alır; elle eklenen dosyanın adı serbesttir.
 
 **Agent araçları**: `list_workflows`, `list_workflow_contents`, `add_workflow_content`, `requeue_workflow_content` (`agent/tools.ts`): kullanıcı sohbetten "şu akışa 6 içerik hazırla" der, agent metinleri yazar, görselleri üretir ve numaralı klasörleri oluşturur.
 
-**Akışlar sırayla** (hesap ayarı, varsayılan açık; Akışlar ekranındaki anahtar, `PATCH /api/v1/worker/me {serialRuns}`): sunucuda bir çalışma bitmeden diğeri başlamaz (`waitTurn`); cihazda işler zaten tek sıradan koşar.
+**İşler sırayla**: agent işleri (akışların hesap adımları, otomatik paylaşım) cihazda tek sıradan koşar (`device.exclusive`); aynı akış üst üste çalışmaz.
 
 `1` numaralı klasör baştan sona **örnektir** (`resources/examples`ten): `content.txt`, `image.jpg`, `video.mp4` ve `published` durumu. Hiç paylaşılmaz, tekrar açıkken de (`isExample`).
 
 **Yapay zekâ ile içerik üretimi** (`generateContents`): Akışlar ekranındaki "İçerik üret" bir içeriği örnek alarak ya da yalnız konudan, akışın klasörüne yeni numaralı içerikler yazar: özgün bir paylaşım metni (`content.txt`), istenirse bir görsel (`image.png`) ve `pending` durumu. Metin ve görsel Share97 geçidiyle üretilir (bedeli krediden).
 
-**Akışlar ekranı ve eşitleme**: akışlar sunucuda durur; uygulama onları hesaplarla birlikte dakikada bir ve **Eşitle** düğmesiyle okur (`accounts.syncAccounts` → `contents.syncContents`), klasörlerini kurar. Hesapta hiç akış yoksa bir kez örnek akış açılır (`POST /api/v1/worker/workflows`: durdurulmuş taslak, bu cihaza atanmış). Yeni akış cihazdaki hesaplara paylaşan yalın bir grafla açılır (her gün 09:00 → klasörden içerik → hesaplar; etiket eklenmez). Zamanlama (günler + saatler ya da her N saatte bir) ve paylaşılacak hesaplar ekrandan seçilir (`PATCH … {schedule, accountIds}`: sunucu grafa yazar). İçerik ekrandan eklenir (metin + dosya seçimi), düşen ya da takılan içerik yeniden sıraya alınır; `publishing`de 90 dakikadan uzun kalan içerik `failed`e çekilir; platforma uymayan ya da kesilecek içerik ve azalan içerik uyarılır; birden çok hesabın sonucu aynı notta birikir (kısmen paylaşıldı). Cihaz kapalıyken kaçan çalışma, cihaz dönünce sunucuda bir kez telafi edilir (`catchUp`). Ekrandan akış yeniden adlandırılır, silinir (`PATCH` / `DELETE /api/v1/worker/workflows/<id>`; cihazdaki içerik klasörü durur), açılıp durdurulur, cihazı ve içerik ayarları (sıra, tekrar) seçilir. Adımlar sitenin düzenleyicisinde düzenlenir.
+**Akışlar ekranı ve eşitleme**: akışlar sunucuda durur; uygulama onları hesaplarla birlikte dakikada bir ve **Eşitle** düğmesiyle okur (`accounts.syncAccounts` → `contents.syncContents`), klasörlerini kurar. Hesapta hiç akış yoksa bir kez örnek akış açılır (`POST /api/v1/worker/workflows`: durdurulmuş taslak, bu cihaza atanmış). Yeni akış cihazdaki hesaplara paylaşan yalın bir grafla açılır (her gün 09:00 → klasörden içerik → hesaplar; etiket eklenmez). Zamanlama (günler + saatler ya da her N saatte bir) ve paylaşılacak hesaplar ekrandan seçilir (`PATCH … {schedule, accountIds}`: sunucu grafa yazar). İçerik ekrandan eklenir (metin + dosya seçimi), düşen ya da takılan içerik yeniden sıraya alınır; `publishing`de 90 dakikadan uzun kalan içerik `failed`e çekilir; platforma uymayan ya da kesilecek içerik ve azalan içerik uyarılır; birden çok hesabın sonucu aynı notta birikir (kısmen paylaşıldı). Ekrandan akış yeniden adlandırılır, silinir (`PATCH` / `DELETE /api/v1/worker/workflows/<id>`; cihazdaki içerik klasörü durur), açılıp durdurulur, cihazı ve içerik ayarları (sıra, tekrar) seçilir. Adımlar sitenin düzenleyicisinde düzenlenir.
 
 **Otomatik paylaşım** (`src/main/auto.ts`): ayar sitenin Ayarlar sayfasında (aralık, diller, konular). Yoklamada sıra boşsa tur sunucudan alınır (`POST /api/v1/worker/auto-content`, iki cihaz aynı turu alamaz); seçili her dil için bir paylaşım, hesaplara sırayla, konusu rastgele. Metin ve görsel Share97 geçidiyle yazılır (bedeli krediden), paylaşımı agent hesabın tarayıcısında yapar, sonuç `PUT /api/v1/worker/auto-content` ile sitedeki İçerikler'e yazılır. Paylaşımlar arası 30 dakika; sıra `auto.json`da, yeniden açılışta kaldığı yerden sürer.
 
@@ -77,7 +85,7 @@ Manifest V3; kurulumla gelir, **Chrome** ekranındaki adımlarla "Paketlenmemiş
 - Agent sayfa arayüzüne bakarak çalışır; her platform canlı hesapla ayrıca denenmelidir.
 - Doğrulama, captcha, hız sınırı ya da otomasyon uyarısında iş durur; aşılmaya çalışılmaz.
 - Otomasyon bazı platformların kullanım şartlarına aykırı olabilir ve hesabı kısıtlatabilir.
-- Uygulama kapalıyken gelen akış işi sunucuda `offline` hatasıyla düşer.
+- Akışlar yalnız uygulama açıkken çalışır; kapalıyken kaçan çalışma açılınca bir kez telafi edilir.
 - Güncelleme `share97-com/share97-desktop` GitHub sürümlerinden okunur (`src/main/updater.ts`).
 
 ```
@@ -85,14 +93,15 @@ src/main/        ana süreç
   auth.ts        Share97 Connect, cihaz anahtarı, sunucu istekleri
   gateway.ts     yapay zekâ geçidi istemcisi (modeller, medya)
   accounts.ts    sosyal hesaplar: ekleme, giriş, gruplar, sunucuyla eşitleme
-  device.ts      Worker döngüsü: sunucudan iş al, yap, sonucu bildir
+  device.ts      Worker döngüsü: eşitle, yokla, saati gelen akışı başlat
+  runner.ts      akışları çalıştırır: grafı yürür, işi agent'a yaptırır, kaydı sunucuya yazar
   contents.ts    Akışların yerel içerik klasörleri ve akış eşitlemesi
   auto.ts        otomatik paylaşım turu
   power.ts       sürekli çalışma (Windows güç ayarları)
   agent/         LangChain agent, araçlar, sayfa kontrolü
   browsers.ts    tarayıcı profilleri ve sekmeler
   chrome/        eklenti köprüsü
-src/shared/      tipler, platform tablosu, yerel içerik kuralları
+src/shared/      tipler, platform tablosu, yerel içerik kuralları, akış motoru (workflow.ts)
 src/renderer/    React arayüzü (Hallmark, Lumen teması: styles.css + tokens.css)
 share97-chrome/  Chrome eklentisi
 ```

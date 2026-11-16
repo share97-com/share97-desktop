@@ -1,5 +1,6 @@
 /** Main, preload ve renderer arasında taşınan veri biçimleri (yalnız tipler, kod yok). */
 
+import type { Graph } from './workflow.ts'
 import type { ContentSettings, GenerateInput, LocalContent } from './contents.ts'
 
 /** Share97 hesabı (`GET /api/v1/worker/me`): paket, site kredisi, yapay zekâ bakiyesi ve bu cihaz (Worker). */
@@ -49,18 +50,25 @@ type OverviewAccount = { id: string; platform: string; handle: string; status: s
 /** Akışın zamanlaması (sunucuda tetikleyici düğümünün verisi): haftalık günler (0 = pazar) + saatler ya da her N saatte bir. */
 export type Schedule = { mode: 'weekly' | 'interval'; days: number[]; times: string[]; everyHours: number }
 
+/** Hazır akışlar (sunucuda `deviceTemplate`): klasörden paylaşım, yapay zekâ ile paylaşım, yanıt, takip ve boş agent görevi. */
+export const FLOW_TEMPLATES = ['post', 'aiPost', 'reply', 'follow', 'task'] as const
+export type FlowTemplate = (typeof FLOW_TEMPLATES)[number]
+export const isFlowTemplate = (v: unknown): v is FlowTemplate => (FLOW_TEMPLATES as readonly unknown[]).includes(v)
+
 type OverviewFlow = { id: string; name: string; slug: string; active: boolean; workerId: string | null }
 
 /** Sunucudaki akışlar, sıradaki yuvalar, son çalışmalar ve bütün cihazlar (`GET /api/v1/worker/overview`). */
 export type Overview = {
   /** Bu cihazın Worker kimliği. */
   me: string
-  /** Hesabın ayarı: akışlar sırayla çalışır, bir çalışma bitmeden diğeri başlamaz (varsayılan açık). */
-  serialRuns: boolean
-  /** `content`: içerik ayarları (sıra, tekrar; içerik akışın cihazındaki klasörde). `schedule`: zamanlama. `accountIds`: paylaşılan hesaplar. */
-  workflows: (OverviewFlow & { timezone: string; content: ContentSettings; lastRunAt: string | null; nodes: string[]; schedule: Schedule | null; accountIds: string[] })[]
+  /**
+   * `content`: içerik ayarları (sıra, tekrar; içerik akışın cihazındaki klasörde). `schedule`: zamanlama. `accountIds`: işin yapıldığı hesaplar.
+   * `instruction`: agent düğümünün görevi (`null`: akışta agent yok, yalnız paylaşım). `graph`: bu cihazın yürüttüğü tanım.
+   */
+  workflows: (OverviewFlow & { timezone: string; content: ContentSettings; lastRunAt: string | null; nodes: string[]; schedule: Schedule | null; accountIds: string[]; instruction: string | null; graph: Graph })[]
   upcoming: { at: number; workflowId: string; name: string }[]
-  runs: { id: string; status: 'running' | 'success' | 'failed' | 'skipped'; error: string | null; startedAt: string; workflow: string; handle: string | null; permalink: string | null }[]
+  /** `error`: düşen çalışmanın hatası ya da atlananın nedeni. `chatIds`: çalışmanın bu cihazdaki sohbet süreçleri. */
+  runs: { id: string; status: 'running' | 'success' | 'failed' | 'skipped'; error: string | null; startedAt: string; workflowId: string; workflow: string; handle: string | null; permalink: string | null; chatIds: string[] }[]
   workers: { id: string; name: string; hint: string; createdAt: string; lastUsedAt: string | null; online: boolean; accounts: OverviewAccount[]; workflows: OverviewFlow[] }[]
   server: { accounts: OverviewAccount[]; workflows: OverviewFlow[] }
   unassigned: OverviewAccount[]
@@ -332,12 +340,12 @@ export type Api = {
   /** Sunucudaki akışlar: web ile aynı kayıt, aynı kurallar. */
   workflows: {
     setActive(id: string, active: boolean): Promise<void>
-    /** Hesabın "akışlar sırayla çalışsın" ayarı. */
-    setSerial(on: boolean): Promise<void>
     /** Akışın Worker hesaplarını yayınlayacak cihaz; `null` hesabın kendi cihazı. */
     setWorker(id: string, workerId: string | null): Promise<void>
-    /** Sunucuda şimdi çalıştırır; dönen durum `success` | `failed` | `skipped`. */
+    /** Bu cihazda şimdi çalıştırır (iş bitince döner); `error`: hata ya da atlanma nedeni. */
     run(id: string): Promise<{ status: string; error: string | null }>
+    /** Agent düğümünün görevi (yanıtla, takip et…): sunucu grafa yazar. */
+    setInstruction(id: string, text: string): Promise<void>
     /** İçerik ayarları: paylaşım sırası ve tekrar. */
     setContent(id: string, content: ContentSettings): Promise<void>
     /** Zamanlama ve paylaşılacak hesaplar (en az bir hesap): sunucu grafa yazar, düzenleyici gerekmez. */
@@ -357,8 +365,8 @@ export type Api = {
     /** Akışın bu cihazdaki içerik klasörleri (`workflow/<id>/contents/1, 2, 3…`) ve durumları. */
     contents(id: string): Promise<LocalContent[]>
     openContents(id: string): Promise<void>
-    /** Bu cihaza atanmış yeni bir taslak akış (klasörü örnek içerikle kurulur). */
-    createLocal(name: string): Promise<void>
+    /** Bu cihaza atanmış, hesapları dolu, durdurulmuş hazır bir akış (şablondan). */
+    createLocal(name: string, template: FlowTemplate): Promise<void>
   }
   activity: {
     list(): Promise<ActivityEntry[]>

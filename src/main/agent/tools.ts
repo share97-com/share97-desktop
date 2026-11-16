@@ -11,9 +11,12 @@ import { toUrl } from '../address.ts'
 import { api, apiJson, models } from '../gateway.ts'
 import { pcmToWav, rateOf } from '../audio.ts'
 import { AGENT_SETTLE_MS, type Browsers } from '../browsers.ts'
-import { connectionsState } from '../accounts.ts'
+import { connectionsState, syncAccounts } from '../accounts.ts'
+import { server } from '../auth.ts'
+import { runNow } from '../runner.ts'
+import { FLOW_TEMPLATES } from '../../shared/types.ts'
 import * as bookmarks from '../bookmarks.ts'
-import { addContent, listContents, requeueContent } from '../contents.ts'
+import { addContent, createLocalWorkflow, listContents, requeueContent } from '../contents.ts'
 import type { ChromeBridge } from '../chrome/bridge.ts'
 import { chromeDriver } from '../chrome/driver.ts'
 import * as passwords from '../passwords.ts'
@@ -25,6 +28,7 @@ import * as ws from '../workspace.ts'
 import { deleteLesson, saveLesson } from './lesson-store.ts'
 import { MAX_LESSON } from './lessons.ts'
 import { lockProblem } from '../../shared/platforms.ts'
+import { usesContents } from '../../shared/contents.ts'
 import type { ChatData } from './memory.ts'
 import * as page from './page.ts'
 import type { Driver } from './page.ts'
@@ -1142,8 +1146,58 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     if (w.workerId !== ov!.me) throw new Error(`The content of "${w.name}" lives on another device; only workflows of this computer can be changed here.`)
     return w
   }
-  /** Akışların yerel içerikleri: kullanıcı sohbetten "şu akışa 6 içerik hazırla" diyebilsin. */
+  const scheduleSchema = z
+    .object({
+      mode: z.enum(['weekly', 'interval']).describe('weekly: on days at times. interval: every N hours.'),
+      days: z.array(z.number().int().min(0).max(6)).optional().describe('weekly: 0 = Sunday ... 6 = Saturday. Default every day.'),
+      times: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).max(12).optional().describe('weekly: local times, HH:MM.'),
+      every_hours: z.number().int().min(1).max(168).optional().describe('interval: hours between runs.'),
+    })
+    .describe("When the workflow runs, in the user's time zone.")
+  const scheduleBody = (s: z.infer<typeof scheduleSchema>) => ({ mode: s.mode, days: s.days ?? [0, 1, 2, 3, 4, 5, 6], times: s.times?.length ? [...new Set(s.times)].sort() : ['09:00'], everyHours: s.every_hours ?? 24 })
+  const patchFlow = (id: string, body: Record<string, unknown>) => server(`/api/v1/worker/workflows/${encodeURIComponent(id)}`, { method: 'PATCH', body })
+
+  /** Akışlar sohbetten yönetilir: "her 3 saatte bir yorumları yanıtla" bir akış olur, "şu akışa 6 içerik hazırla" klasörüne içerik yazar. */
   const workflowTools = [
+    def(
+      'create_workflow',
+      "Create a Share97 workflow on this computer so a job repeats by itself on a schedule. Use it whenever the user wants something done regularly or at set times (\"every day\", \"every 3 hours\", \"her gün\", \"belirli aralıklarla\"), instead of doing it only once now. Templates: task = the AI agent does the instruction on the account (reply, follow, like, collect data, post ...); reply / follow = ready-made tasks (pass instruction to replace their text); post = shares the next content of the workflow's folder (add contents with add_workflow_content); aiPost = writes a new post about the instruction's topic on every run. The workflow uses every account signed in on this computer. It is created switched off unless active is true: switch it on only when the user asked for it to start.",
+      z.object({
+        name: z.string().min(1).max(120),
+        template: z.enum(FLOW_TEMPLATES),
+        instruction: z.string().max(4000).optional().describe('What the agent should do on each run, written as a complete instruction (task, reply, follow). Not used by post.'),
+        schedule: scheduleSchema.optional(),
+        active: z.boolean().optional(),
+      }),
+      async (a) => {
+        const { id } = await createLocalWorkflow(a.name, a.template)
+        const instruction = a.template === 'post' || a.template === 'aiPost' ? undefined : a.instruction
+        if (a.template === 'task' && !instruction?.trim()) throw new Error('A task workflow needs an instruction.')
+        if (instruction || a.schedule) await patchFlow(id, { instruction, schedule: a.schedule && scheduleBody(a.schedule) })
+        // Etkinleştirme ayrı: hesabı olmayan ya da eksik akış açılmaz, taslak kalır ve nedeni döner.
+        const on = a.active ? await patchFlow(id, { active: true }).then(() => true, (e: Error) => e.message) : false
+        await syncAccounts()
+        return `Workflow "${a.name}" created (id ${id}). ${on === true ? 'It is switched on and runs on its schedule.' : on === false ? 'It is switched off: the user can switch it on in the Workflows screen, or call update_workflow with active=true when they ask.' : `It could not be switched on (${on}): an account must be signed in on this computer first.`}`
+      },
+    ),
+    def(
+      'update_workflow',
+      "Change a workflow of this computer: switch it on or off, change its schedule, or replace the agent's instruction (task workflows). Only what the user asked for.",
+      z.object({ workflow_id: z.string(), active: z.boolean().optional(), schedule: scheduleSchema.optional(), instruction: z.string().max(4000).optional() }),
+      async (a) => {
+        const w = localFlow(a.workflow_id)
+        if (a.instruction !== undefined && w.instruction === null) throw new Error(`"${w.name}" has no AI agent step: it only shares content. Create a task workflow instead.`)
+        await patchFlow(w.id, { active: a.active, instruction: a.instruction, schedule: a.schedule && scheduleBody(a.schedule) })
+        await syncAccounts()
+        return `Workflow "${w.name}" updated.`
+      },
+    ),
+    def('run_workflow', 'Run a workflow of this computer now, once. It starts in the background as its own chat (visible in the chat list) and its result appears in the Workflows screen; do not wait for it.', z.object({ workflow_id: z.string() }), async (a) => {
+      const w = localFlow(a.workflow_id)
+      await syncAccounts()
+      void runNow(w.id).catch(() => {})
+      return `"${w.name}" started. It runs as its own chat; the result is logged in the Workflows screen.`
+    }),
     def('list_workflows', "List the user's Share97 workflows: id, name, active, schedule, the accounts it shares to, and whether its content folder is on this computer (here) with how many contents are waiting.", z.object({}), async () => {
       const s = connectionsState()
       const ov = s.overview
@@ -1152,7 +1206,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
         await Promise.all(
           ov.workflows.map(async (w) => {
             const here = w.workerId === ov.me
-            return { id: w.id, name: w.name, active: w.active, schedule: w.schedule, timezone: w.timezone, accounts: s.accounts.filter((a) => w.accountIds.includes(a.id)).map((a) => `@${a.handle} (${a.platform})`), here, waiting: here ? (await listContents(w.id)).filter((i) => i.status === 'pending').length : null }
+            return { id: w.id, name: w.name, active: w.active, schedule: w.schedule, timezone: w.timezone, instruction: w.instruction ?? undefined, accounts: s.accounts.filter((a) => w.accountIds.includes(a.id)).map((a) => `@${a.handle} (${a.platform})`), here, waiting: here && usesContents(w.nodes) ? (await listContents(w.id)).filter((i) => i.status === 'pending').length : null }
           }),
         ),
         null,

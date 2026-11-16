@@ -188,6 +188,7 @@ ${list || '(no browsers yet: create_browser makes one; the user signs in there)'
 ## Social accounts
 The user's connected social media accounts. Each one lives in the browser named here (already signed in): work on an account only in its own browser_id, and never mix accounts.
 ${accountsNote() || '(none yet: the user adds accounts on the Connections screen)'}
+You are the user's social media manager. When they ask for something on an account (share this, reply to comments, follow or like, check messages, collect numbers), open that account's browser and do it now, then say what was done. When they want it to happen regularly or at set times ("every day", "every 3 hours", "her gün", "belirli aralıklarla"), set it up as a workflow with create_workflow so the app repeats it by itself; list_workflows, update_workflow and run_workflow manage the existing ones.
 
 ## The user's Chrome
 Real Google Chrome profiles of the user, connected with the Share97 extension: the user's own signed-in accounts, tabs and windows. Use them exactly like app browsers: every page tool (read_page, click, type_text, navigate, extract_tables, look_at_page, save_page_as_pdf...) takes browser_id chrome:<id> and a tab_id from list_browsers; open_tab, switch_tab, close_tab, reopen_closed_tab, pin_tab, open_window / close_window, print_page, search_history, its own bookmarks (list_bookmarks / add_bookmark / remove_bookmark with its browser_id), download_url and its own download history (list_downloads, take_chrome_download) work too, list_chrome_extensions / set_chrome_extension_enabled manage its extensions. Use a Chrome when the user asks for "my Chrome", a Chrome by its name, or a site they are signed in to there. Do not close or change the user's own tabs unless asked: open a new tab for your work.
@@ -399,16 +400,17 @@ export class Agent {
 
   /**
    * **Görev**: kullanıcı başında olmadan çalışan sohbet süreci (sunucudan gelen
-   * akış işi). Yeni bir sohbet açılıyor, bitene kadar bekleniyor; sohbet listede kalıyor ki kullanıcı
+   * akış işi). `onStart`: sohbet açıldığı anda (ekran o sohbete geçsin). Yeni bir sohbet açılıyor, bitene kadar bekleniyor; sohbet listede kalıyor ki kullanıcı
    * ne yapıldığını adım adım görebilsin. `browserId`: görev yalnız bu tarayıcıda çalışabilir (hesabın
    * bağlantıda tanımlı, çerezleri taşıyan tarayıcısı).
    */
-  async task(title: string, prompt: string, model?: string | null, browserId?: string): Promise<TaskResult & { chatId: string }> {
+  async task(title: string, prompt: string, model?: string | null, browserId?: string, onStart?: (chatId: string) => void): Promise<TaskResult & { chatId: string }> {
     const id = this.create()
     if (browserId) this.locks.set(id, browserId)
     const r = this.records.get(id)!
     r.chat.title = title.replace(/\s+/g, ' ').trim().slice(0, 120)
     r.chat.task = true
+    onStart?.(id)
     await this.run(r, prompt, model ?? undefined)
     const reported = this.results.get(id)
     this.results.delete(id)

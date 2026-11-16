@@ -31,7 +31,6 @@ const api: Api = {
   },
   workflows: {
     setActive: (id, active) => call('workflows:setActive', id, active),
-    setSerial: (on) => call('workflows:setSerial', on),
     setWorker: (id, workerId) => call('workflows:setWorker', id, workerId),
     run: (id) => call('workflows:run', id),
     setContent: (id, content) => call('workflows:setContent', id, content),
@@ -44,7 +43,8 @@ const api: Api = {
     remove: (id) => call('workflows:remove', id),
     generate: (id, input) => call('workflows:generate', id, input),
     contents: (id) => call('workflows:contents', id),
-    createLocal: (name) => call('workflows:createLocal', name),
+    createLocal: (name, template) => call('workflows:createLocal', name, template),
+    setInstruction: (id, text) => call('workflows:setInstruction', id, text),
     openContents: (id) => call('workflows:openContents', id),
   },
   activity: {
