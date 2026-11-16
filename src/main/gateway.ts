@@ -3,7 +3,7 @@ import { SHARE97, apiKey } from './auth.ts'
 
 /**
  * Share97 yapay zekâ geçidi (`/api/v1/ai/*`): OpenAI biçiminde, sunucu isteği api14'e aktarıyor ve
- * bedeli (api14 fiyatı + sitenin marjı) kullanıcının Share97 kredisinden düşüyor. Yanıttaki
+ * bedeli (api14 fiyatı + sitenin marjı) kullanıcının Share97 bakiyesinden düşüyor. Yanıttaki
  * `usage.cost` ve model listesindeki fiyatlar kullanıcının ödediği tutar.
  */
 export const AI_BASE = `${SHARE97}/api/v1/ai`

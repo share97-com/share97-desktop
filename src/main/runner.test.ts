@@ -31,7 +31,7 @@ mock.module('./auth.ts', {
         const key = `${init.body!.workflowId}:${init.body!.slot}:${init.body!.trigger}`
         if (seen.has(key)) throw new ServerError('duplicate', 409)
         seen.add(key)
-        return { id: `run${seen.size}`, credits: 5 }
+        return { id: `run${seen.size}` }
       }
       return path.endsWith('/publications') ? { postId: 'post1' } : { ok: true }
     },
@@ -121,7 +121,7 @@ test('agent düğümü: içerik olmadan görevi hesabın tarayıcısında yapar;
   taskResult = { ok: true, summary: 'replied to 2 comments' }
   assert.deepEqual(await runner.runFlow(w as never, 60_000, ''), { status: 'success', error: null })
   assert.match(tasks.at(-1)!.prompt, /Task from the owner's Share97 workflow: Reply to new comments/)
-  assert.equal(last(/publications$/).body!.post, undefined, 'görev: paylaşım kaydı açılmaz, kredi düşer')
+  assert.equal(last(/publications$/).body!.post, undefined, 'görev: paylaşım kaydı açılmaz')
   taskResult = { ok: false, summary: 'a captcha appeared' }
   const failed = await runner.runFlow(w as never, 120_000, '')
   assert.equal(failed.status, 'failed')

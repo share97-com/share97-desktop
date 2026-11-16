@@ -2,7 +2,7 @@ import { Bot, Boxes, ChevronLeft, ChevronRight, ExternalLink, FolderOpen, Globe,
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Account, BrowserInfo, BrowserSettings, Effort, HistoryEntry, PowerState, Settings as SettingsT } from '../../shared/types.ts'
 import { BrowserPanel } from './Bars.tsx'
-import { creditText, planLabel } from './Billing.tsx'
+import { balanceText, planLabel } from './Billing.tsx'
 import { ModelPicker } from './Chat.tsx'
 import { ConfirmButton } from './Confirm.tsx'
 import { api, useBookmarks, useExtensions, useLogins, useSettings, useUpdate } from './hooks.ts'
@@ -89,7 +89,7 @@ function AccountSection({ account, onBilling }: { account: Account; onBilling: (
           </div>
           <div className="ml-auto text-right">
             <p className="flex items-baseline justify-end gap-1.5">
-              <span className="figure text-[2.6rem]">{creditText(account)}</span> <span className="readout">{t.credits}</span>
+              <span className="figure text-[2.6rem]">{balanceText(account)}</span>
             </p>
             <p className="mt-1 text-xs text-muted">{planLabel(account.plan)}</p>
           </div>

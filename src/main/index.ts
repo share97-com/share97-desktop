@@ -207,7 +207,7 @@ function applyBackground() {
 }
 
 /**
- * Share97 sitesi ayrı pencerede (faturalama, kredi yükleme, akış düzenleyicisi): `/api/v1/worker/web`
+ * Share97 sitesi ayrı pencerede (faturalama, bakiye yükleme, akış düzenleyicisi): `/api/v1/worker/web`
  * cihaz anahtarını oturum çerezine çeviriyor, kullanıcı yeniden giriş yapmıyor. Anahtar yalnız bu
  * uca gidiyor, sayfanın isteklerine değil.
  */
@@ -222,7 +222,7 @@ async function openSite(path: string) {
       else if (/^https:\/\//.test(url)) void shell.openExternal(url)
       return { action: 'deny' }
     })
-    // Pencere kapanınca hesap bilgisi tazeleniyor: kullanıcı paket ya da kredi almış olabilir.
+    // Pencere kapanınca hesap bilgisi tazeleniyor: kullanıcı paket almış ya da bakiye yüklemiş olabilir.
     s.on('closed', () => void auth.refresh())
   }
   await site.loadURL(`${auth.SHARE97}/api/v1/worker/web?${new URLSearchParams({ next: path.startsWith('/') ? path : '/' })}`, { extraHeaders: `Authorization: Bearer ${key}\n` })

@@ -196,7 +196,7 @@ export function contentFiles(workflowId: string, folder: string, urls: string[])
  * **Yapay zekâ ile içerik üretimi.** Bir içerik örnek alınarak (`from`) ya da yalnız konudan, akışın klasörüne
  * yeni numaralı içerikler yazılır: metin (`content.txt`), istenirse bir görsel (`image.png`) ve `pending`
  * durumu. Her biri özgün bir paylaşımdır (bkz. `generationMessages`). Metin ve görsel Share97 geçidiyle
- * üretilir (bedeli krediden). Dönüş: yazılan içerik klasörleri.
+ * üretilir (bedeli bakiyeden). Dönüş: yazılan içerik klasörleri.
  */
 export async function generateContents(workflowId: string, name: string, raw: unknown): Promise<string[]> {
   const r = (raw ?? {}) as Partial<Record<keyof GenerateInput, unknown>>

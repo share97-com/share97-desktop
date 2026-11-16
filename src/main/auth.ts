@@ -78,7 +78,7 @@ export async function server<T>(path: string, init: { method?: string; body?: un
   return data
 }
 
-/** Anahtar varsa hesabı (paket, kredi, yapay zekâ bakiyesi) tazeler; iptal edilmişse çıkış durumuna düşer. */
+/** Anahtar varsa hesabı (paket, USD bakiye) tazeler; iptal edilmişse çıkış durumuna düşer. */
 export async function refresh(): Promise<AuthState> {
   if (!key) return set({ status: 'signed-out' })
   try {

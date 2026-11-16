@@ -3,7 +3,7 @@ import type { Account, AuthState, Shortcut } from '../../shared/types.ts'
 import { ArchiveRestore, Cable, Coins, MessageSquare, Puzzle, Settings as Gear, Workflow } from 'lucide-react'
 import { Backups } from './Backups.tsx'
 import { BrowserBar, BrowserStrip } from './Bars.tsx'
-import { Billing, creditText, planLabel } from './Billing.tsx'
+import { Billing, balanceText, planLabel } from './Billing.tsx'
 import { ChromeView } from './Chrome.tsx'
 import { Connect } from './Connect.tsx'
 import { Connections } from './Connections.tsx'
@@ -34,7 +34,7 @@ export type View = 'home' | 'connections' | 'workflows' | 'chrome' | 'backup' | 
 
 /**
  * Kenar çubuğu: uygulamanın ekranları. Sohbet (agent), Bağlantılar (sosyal hesaplar), Akışlar
- * (sunucuyla eşit; cihazlar ve etkinlik de orada), Chrome (eklenti), altta paket/kredi
+ * (sunucuyla eşit; cihazlar ve etkinlik de orada), Chrome (eklenti), altta paket/bakiye
  * ve ayarlar. Çalışan ya da onay bekleyen iş varsa ilgili satırda işaret.
  */
 function Sidebar({ account, view, onView }: { account: Account; view: View; onView: (v: View) => void }) {
@@ -72,8 +72,7 @@ function Sidebar({ account, view, onView }: { account: Account; view: View; onVi
             <Coins className="size-3.5" strokeWidth={1.5} /> {planLabel(account.plan)}
           </span>
           <span className="mt-1 flex items-baseline gap-1.5">
-            <span className="figure text-[1.9rem]">{creditText(account)}</span>
-            <span className="readout">{t.credits}</span>
+            <span className="figure text-[1.9rem]">{balanceText(account)}</span>
           </span>
         </button>
         {item('settings', Gear, t.nav.settings)}

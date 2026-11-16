@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { BROWSER_COLORS, type Account, type BrowserInfo, type BrowsersState } from '../../shared/types.ts'
 import type { View } from './App.tsx'
 import { ConfirmButton } from './Confirm.tsx'
-import { creditText, planLabel } from './Billing.tsx'
+import { balanceText, planLabel } from './Billing.tsx'
 import { api, useChats, useUpdate } from './hooks.ts'
 import { t } from './i18n.ts'
 import mark from './mark.svg'
@@ -156,7 +156,7 @@ export function BrowserStrip({ state, account, view, onView, onOverlay }: { stat
         <button className="flex items-center gap-2 rounded-full py-1 pl-1 pr-3 hover:bg-panel" onClick={() => setMenu(true)} aria-expanded={menu}>
           <span className="grid size-6 place-items-center rounded-full border border-line-2 bg-raised text-xs font-medium text-fg">{(account.name || account.email || '?').slice(0, 1).toUpperCase()}</span>
           <span className="text-xs tabular-nums text-muted">
-            {creditText(account)} {t.credits}
+            {balanceText(account)}
           </span>
         </button>
         {menu && (
@@ -166,7 +166,7 @@ export function BrowserStrip({ state, account, view, onView, onOverlay }: { stat
               {account.name && <p className="truncate text-xs text-muted">{account.email}</p>}
               <p className="mt-2 text-xs text-muted">
                 <span className="tabular-nums text-fg">
-                  {creditText(account)} {t.credits}
+                  {balanceText(account)}
                 </span>{' '}
                 ({planLabel(account.plan)})
               </p>

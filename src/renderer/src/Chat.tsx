@@ -239,7 +239,7 @@ function Message({ m, live, onRetry }: { m: ChatMessage; live: boolean; onRetry?
 
 function ErrorNote({ error }: { error: string }) {
   if (error === 'stopped') return <p className="text-sm text-muted">{t.stopped}</p>
-  const balance = /insufficient-credits/.test(error)
+  const balance = /insufficient-balance/.test(error)
   return (
     <div role="alert" className="rounded-lg border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
       {balance ? t.insufficient : error}

@@ -53,8 +53,8 @@ type Run = {
   flow: Flow
   graph: Graph
   steps: RunStep[]
-  /** Gövdelerle (döngü, alt akış) paylaşılan sayaçlar. `credits`: kalan site kredisi (`null`: sınırsız), iş başına bir. `done`: bir hesapta yapılan iş sayısı. */
-  tally: { credits: number | null; done: number }
+  /** Gövdelerle (döngü, alt akış) paylaşılan sayaç: `done` bir hesapta yapılan iş sayısı. Yayın ücretsiz. */
+  tally: { done: number }
   chatIds: string[]
   /** Alınan içerik klasörleri → bir hesabın sonucu `status.txt`e yazıldı mı. Yazılmayan çalışma bitince `pending`e döner. */
   taken: Map<string, boolean>
@@ -116,7 +116,6 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
   const account = localAccounts().find((l) => l.id === accountId)
   const known = connectionsState().accounts.find((a) => a.id === accountId)
   if (!account) throw new Error(known ? `@${known.handle} is not signed in on this device: add the account in Share97 Desktop on this computer` : 'the account of this step was removed')
-  if (r.tally.credits !== null && r.tally.credits <= 0) throw new Error('no credits left: they renew tomorrow, or add a credit pack on the Billing page')
   const post: JobPost = {
     type: o.type && o.type !== 'auto' ? o.type : item?.media.length === 1 && item.media[0].kind === 'video' ? 'reel' : 'feed',
     caption: item?.caption,
@@ -162,7 +161,6 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
     throw new Error(`@${account.handle}: ${out.summary}`)
   }
   r.tally.done++
-  if (r.tally.credits !== null) r.tally.credits--
   const saved = await server<{ postId: string | null }>(`/api/v1/worker/runs/${encodeURIComponent(r.id)}/publications`, {
     body: { accountId, permalink: out.permalink?.slice(0, 500), postId: item?.postId, post: item ? { caption: item.caption, folder: item.folder, aiGenerated: item.generated, media: item.media } : undefined },
   }).catch((e) => (console.error('[runner]', (e as Error).message), null))
@@ -290,14 +288,14 @@ export async function runFlow(flow: Flow, slot: number, trigger: string): Promis
   if (running.has(flow.id)) return { status: 'failed', error: 'this workflow is already running' }
   running.add(flow.id)
   try {
-    let open: { id: string; credits: number | null }
+    let open: { id: string }
     try {
       open = await server('/api/v1/worker/runs', { body: { workflowId: flow.id, slot, trigger } })
     } catch (e) {
       if (e instanceof ServerError && e.status === 409) return { status: 'duplicate', error: null }
       throw e
     }
-    const r: Run = { id: open.id, flow, graph: flow.graph, steps: [], tally: { credits: open.credits, done: 0 }, chatIds: [], taken: new Map(), subDepth: 0, visited: new Set([flow.id]) }
+    const r: Run = { id: open.id, flow, graph: flow.graph, steps: [], tally: { done: 0 }, chatIds: [], taken: new Map(), subDepth: 0, visited: new Set([flow.id]) }
     const starts = triggersIn(flow.graph).filter((t) => !trigger || t.id === trigger)
     const result = await runWalk<Item>(flow.graph, starts.map((t) => ({ id: t.id, items: [] })), (n, it) => execute(r, n, it), [], describe, recorder(r))
     const status = result.failure ? 'failed' : r.tally.done ? 'success' : 'skipped'

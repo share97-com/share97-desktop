@@ -10,7 +10,7 @@ import * as ws from './workspace.ts'
 
 /**
  * **Otomatik paylaşım** (bkz. `shared/auto.ts`): tur sunucudan alınıyor, her yoklamada en çok bir
- * paylaşım, aralarında `GAP_MS`. Metin ve görsel Share97 geçidiyle yazılıyor (bedeli krediden), paylaşımı
+ * paylaşım, aralarında `GAP_MS`. Metin ve görsel Share97 geçidiyle yazılıyor (bedeli bakiyeden), paylaşımı
  * agent hesabın tarayıcısında yapıyor; yapılan paylaşım sitedeki İçerikler'e yazılıyor.
  */
 const GAP_MS = 30 * 60_000

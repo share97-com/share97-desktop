@@ -1,17 +1,17 @@
-import { Coins, Crown, RefreshCw, Sparkles } from 'lucide-react'
+import { Crown, RefreshCw, Wallet } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { Account } from '../../shared/types.ts'
 import { api } from './hooks.ts'
-import { cost, dateTime, t } from './i18n.ts'
+import { cost, dateTime, money, t } from './i18n.ts'
 import { button, Card, iconButton, Page, Pill, primary } from './ui.tsx'
 
 export const planLabel = (plan: string) => t.plans[plan] ?? plan
-/** Üst şeritteki ve menüdeki kısa kredi yazısı. */
-export const creditText = (a: Account) => (a.credits.unlimited ? '∞' : String(a.credits.total))
+/** Üst şeritteki ve menüdeki kısa bakiye yazısı (USD). */
+export const balanceText = (a: Account) => (a.balance.unlimited ? '∞' : money.format(Math.max(0, a.balance.balanceUsd)))
 
 /**
- * **Paket ve kredi.** Paket, günlük hak, ek site kredisi ve yapay zekâ kredisi (USD, abonelik her ay yeniliyor,
- * yükleme 30 gün). Satın alma sitenin faturalama sayfasında (Stripe), bu cihazın oturumuyla ayrı pencerede.
+ * **Paket ve bakiye.** Paket ve sınırları, USD bakiye (abonelik her ay yüklüyor, yükleme 30 gün). Bakiye yalnız
+ * yapay zekâda harcanıyor; yayın ücretsiz. Satın alma sitenin faturalama sayfasında (Stripe), ayrı pencerede.
  */
 export function Billing({ account: a }: { account: Account }) {
   const [busy, setBusy] = useState(false)
@@ -20,8 +20,8 @@ export function Billing({ account: a }: { account: Account }) {
     void api().auth.refresh().finally(() => setBusy(false))
   }
   useEffect(refresh, [])
-  const used = Math.max(0, a.credits.daily - a.credits.remaining)
   const billing = () => void api().site.open('/billing')
+  const b = a.balance
 
   return (
     <Page
@@ -68,64 +68,26 @@ export function Billing({ account: a }: { account: Account }) {
         <Card>
           <div className="flex items-center gap-3">
             <span className="grid size-10 place-items-center rounded-lg bg-raised text-brand">
-              <Coins className="size-5" />
+              <Wallet className="size-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-xs text-muted">{t.credits}</p>
-              <p className="figure text-[2.6rem] tabular-nums">{a.credits.unlimited ? t.unlimited : a.credits.total}</p>
+              <p className="text-xs text-muted">{t.bill.balance}</p>
+              <p className="figure text-[2.6rem] tabular-nums">{b.unlimited ? t.unlimited : cost.format(b.balanceUsd)}</p>
+              {b.expiresAt && !b.unlimited && <p className="text-xs text-muted">{t.bill.expires(dateTime.format(new Date(b.expiresAt)))}</p>}
             </div>
+            {/* Abonelik kademeleri ve serbest tutarlı yükleme sitenin faturalama sayfasında (Stripe). */}
             <button className={primary} onClick={billing}>
-              {t.bill.buy}
+              {t.bill.topup}
             </button>
           </div>
-          {!a.credits.unlimited && (
-            <dl className="mt-4 space-y-3 border-t border-line pt-4 text-sm">
-              <div>
-                <dt className="flex justify-between">
-                  <span>{t.bill.daily}</span>
-                  <span className="tabular-nums">
-                    {a.credits.remaining} / {a.credits.daily}
-                  </span>
-                </dt>
-                <dd>
-                  <div className="my-1.5 h-1.5 overflow-hidden rounded-full bg-raised" role="progressbar" aria-valuemin={0} aria-valuemax={a.credits.daily} aria-valuenow={a.credits.remaining}>
-                    <div className="h-full bg-fg-2" style={{ width: `${a.credits.daily ? (a.credits.remaining / a.credits.daily) * 100 : 0}%` }} />
-                  </div>
-                  <span className="text-xs text-muted">{t.bill.dailyHint(used, a.credits.daily)}</span>
-                </dd>
-              </div>
-              <div>
-                <dt className="flex justify-between">
-                  <span>{t.bill.extra}</span>
-                  <span className="tabular-nums">{a.credits.extra}</span>
-                </dt>
-                <dd className="text-xs text-muted">{t.bill.extraHint}</dd>
-              </div>
-            </dl>
-          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {!b.enabled ? <Pill tone="warn">{t.bill.aiOff}</Pill> : !b.canSpend && <Pill tone="bad">{t.insufficient}</Pill>}
+          </div>
+          <p className="mt-3 text-sm text-muted">{t.bill.balanceHint}</p>
+          {b.balanceUsd < 0 && <p className="mt-1 text-sm text-danger">{t.bill.debt}</p>}
+          <p className="mt-1 text-xs text-muted">{t.bill.prices}</p>
         </Card>
       </div>
-
-      <Card>
-        <div className="flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-lg bg-raised text-brand">
-            <Sparkles className="size-5" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs text-muted">{t.bill.ai}</p>
-            <p className="figure text-[2.6rem] tabular-nums">{a.ai.unlimited ? t.unlimited : cost.format(a.ai.balanceUsd)}</p>
-            {a.ai.expiresAt && !a.ai.unlimited && <p className="text-xs text-muted">{t.bill.aiExpires(dateTime.format(new Date(a.ai.expiresAt)))}</p>}
-          </div>
-          {!a.ai.enabled ? <Pill tone="warn">{t.bill.aiOff}</Pill> : !a.ai.canSpend && <Pill tone="bad">{t.insufficient}</Pill>}
-          {/* Abonelik kademeleri ve serbest tutarlı yükleme sitenin faturalama sayfasında (Stripe). */}
-          <button className={primary} onClick={billing}>
-            {t.bill.aiTopup}
-          </button>
-        </div>
-        <p className="mt-3 text-sm text-muted">{t.bill.aiHint}</p>
-        {a.ai.balanceUsd < 0 && <p className="mt-1 text-sm text-danger">{t.bill.aiDebt}</p>}
-        <p className="mt-1 text-xs text-muted">{t.bill.prices}</p>
-      </Card>
     </Page>
   )
 }

@@ -3,16 +3,14 @@
 import type { Graph } from './workflow.ts'
 import type { ContentSettings, GenerateInput, LocalContent } from './contents.ts'
 
-/** Share97 hesabı (`GET /api/v1/worker/me`): paket, site kredisi, yapay zekâ bakiyesi ve bu cihaz (Worker). */
+/** Share97 hesabı (`GET /api/v1/worker/me`): paket, USD bakiye ve bu cihaz (Worker). */
 export type Account = {
   email: string | null
   name: string | null
-  /** `free` | `pro` */
+  /** `free` | `ai4` … */
   plan: string
-  /** Site kredisi (yayın): günlük hak, bugün kalan, satın alınmış ek kredi. */
-  credits: { daily: number; remaining: number; extra: number; total: number; unlimited: boolean }
-  /** Yapay zekâ kredisi (USD): kalan, en yakın bitiş (ISO), sitenin marjı. Abonelik her ay yeniliyor, yükleme 30 gün. */
-  ai: { enabled: boolean; marginPercent: number; balanceUsd: number; expiresAt: string | null; unlimited: boolean; canSpend: boolean }
+  /** USD bakiye: kalan, en yakın bitiş (ISO), sitenin marjı. Yalnız yapay zekâda harcanıyor; yayın ücretsiz. */
+  balance: { enabled: boolean; marginPercent: number; balanceUsd: number; expiresAt: string | null; unlimited: boolean; canSpend: boolean }
   /** Paketin sınırları; `null` sınırsız. */
   limits: { maxAccounts: number | null; maxWorkflows: number | null }
   worker: { id: string; name: string } | null
