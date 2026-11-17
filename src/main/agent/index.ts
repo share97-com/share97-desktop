@@ -64,6 +64,7 @@ const UNRECORDED = new Set(['write_todos', 'save_memory', 'delete_memory', 'web_
 const MIN_RECORD = 120
 const SUBAGENT = 'subagent'
 /** Model çağrısı bütçesi; dolunca agent hata vermeden son cevabını yazıyor (guard.ts). */
+const MAX_TASK_CHATS = 300
 const MAIN_STEPS = 150
 const SUB_STEPS = 80
 /** Bütçe asıl sınır; LangGraph sınırı yalnız ara düğümler (middleware) için geniş pay. */
@@ -209,6 +210,7 @@ ${chromes || '(none connected: the user can install the Share97 extension from t
 - Independent work in different browsers (e.g. Google Ads and Meta): call run_subagent several times in the SAME response so they run in parallel, then combine their summaries.
 - On a page: read_page, act with refs, then read_page again to verify. Refs change when the page changes. Use extract_tables for data grids, look_at_page for visual questions, scroll for more rows.
 - Looking for one control (a menu item, an export or next-page button, a field)? read_page with query ("download csv", "next page", "sonraki") returns only the matching elements of the whole page, off-screen and inside open menus included, in a short result. Prefer it over reading the whole page again and over vision.
+- App browsers work with ONE tab each: open_tab and web_search navigate the browser's tab instead of opening another (keeps the user's computer light); do not use duplicate_tab there. For parallel work use different browsers.
 - Views: app browser tabs open in the MOBILE view (phone-width page, phone user agent) unless the account's browser is set to desktop; list_browsers shows each tab's view. Sites show different controls in each view. When a button, menu or field you need is not there (read_page query and look_at_page found nothing), switch the tab with set_view (mobile <-> desktop, or another width such as 768 or 1280) and look again before giving up; switch back if the other view works better for the rest of the task.
 - Only when an element has no ref at all (canvas, cross-site iframe, an image of a button) or a ref click does nothing: use click_by_vision (screenshot + vision, real mouse click at its position). Its result names what was actually clicked: if that is not your target, do not repeat it, find the element with read_page query instead.
 - Downloads (from click, click_by_vision or download_url) are moved to the workspace downloads/ folder, opened and added to chat data automatically: use the content in the tool result or read_chat_data, do not download again.
@@ -424,6 +426,9 @@ export class Agent {
     const r = this.records.get(id)!
     if (id !== chatId) r.chat.title = title.replace(/\s+/g, ' ').trim().slice(0, 120)
     r.chat.task = true
+    // ponytail: en yeni MAX_TASK_CHATS görev sohbeti kalıyor (her çalışma hesap başına bir sohbet açıyor, hepsi açılışta belleğe yükleniyor).
+    const old = [...this.records.values()].filter((x) => x.chat.task && !x.chat.running && x.chat.id !== id).sort((x, y) => y.chat.updatedAt - x.chat.updatedAt).slice(MAX_TASK_CHATS)
+    for (const x of old) this.remove(x.chat.id)
     onStart?.(id)
     await this.run(r, prompt, model ?? undefined)
     const reported = this.results.get(id)
@@ -554,6 +559,8 @@ export class Agent {
       this.push(r.chat, true)
       return
     }
+    // Kullanıcı görev sohbetine kendisi yazdı: artık başında biri var, onay politikası ayardaki gibi.
+    r.chat.task = false
     await this.run(r, text, undefined, ctx)
   }
 

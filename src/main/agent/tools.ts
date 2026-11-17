@@ -76,6 +76,8 @@ const DOWNLOAD_WAIT_MS = 60_000
 /** İndirme/dışa aktarma düğmesinden sonra dosyanın başlaması için bekleme (Google Ads raporu önce hazırlıyor). */
 const DOWNLOAD_START_MS = 10_000
 const DOWNLOADISH = /(indir|download|export|dışa aktar|csv|xlsx|excel|\bpdf\b|tsv)/i
+/** web_search çağrılarının tek sırası (bkz. `search`). */
+let searching: Promise<string> = Promise.resolve('')
 const takenApp = new WeakMap<object, Set<string>>()
 type ChromeDownload = { id: number; filename: string; state: string; bytes: number; url: string; started: string; exists: boolean }
 /** Agent'ın okuduğu listelerde insan gibi okunur boyut ve tarih. */
@@ -476,7 +478,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
       b.activate(a.browser_id)
       return 'Shown.'
     }),
-    def('open_tab', 'Open a new tab in a browser (shares that browser cookies). In a Chrome, window_id picks the window (default: the focused one).', z.object({ browser_id: z.string(), url: z.string(), focus: z.boolean().optional(), window_id: z.number().int().optional() }), async (a) => {
+    def('open_tab', "Open an address in a browser. An app browser works with ONE tab: this navigates that tab and returns its id (no second tab is opened, to keep the computer light). In a Chrome it opens a new tab; window_id picks the window (default: the focused one).", z.object({ browser_id: z.string(), url: z.string(), focus: z.boolean().optional(), window_id: z.number().int().optional() }), async (a) => {
       const cid = chromeOf(a.browser_id)
       if (cid) {
         usableChrome(cb, cid)
@@ -484,10 +486,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
         await knownTab(cid, t.id)
         return JSON.stringify({ tab_id: String(t.id), url: t.url })
       }
-      const t = b.openTab(a.browser_id, a.url, a.focus ?? true)
-      if (!t) throw new Error('Browser not found.')
-      await page.navigate(page.electronDriver(t.view.webContents), t.url).catch(() => {})
-      return JSON.stringify({ tab_id: t.id })
+      return JSON.stringify({ tab_id: await appGo(a.browser_id, a.url) })
     }),
     def('switch_tab', 'Make a tab the active tab of its browser (in a Chrome it also focuses that window).', z.object(target), async (a) => {
       if (!a.tab_id) throw new Error('tab_id is required.')
@@ -1118,6 +1117,15 @@ ${await ctx.vision(a.question, images)}`
    * tarayıcısında yeni, etkin bir sekme. Kullanıcı sekme şeridinde ve ana sayfadaki tarayıcı
    * kartında aramayı ve açılan kaynakları görüyor; sekmeler kaynak olarak açık kalıyor.
    */
+  /** Tek sekme: uygulama tarayıcısında agent yeni sekme açmıyor, etkin sekmede geziniyor (her sekme ayrı bir işlem ve bellek). */
+  async function appGo(browserId: string, url: string): Promise<string> {
+    const x = b.open(browserId)
+    const wc = x && b.contents(browserId)
+    if (!x || !wc) throw new Error('Browser not found. Call list_browsers.')
+    await page.navigate(page.electronDriver(wc), toUrl(url)).catch(() => {})
+    return x.activeTabId!
+  }
+
   async function newTab(browserId: string | undefined, url: string, focus: boolean): Promise<{ browser_id: string; tab_id: string }> {
     const cid = browserId && chromeOf(browserId)
     if (cid) {
@@ -1135,13 +1143,46 @@ ${await ctx.vision(a.question, images)}`
       return { browser_id: created.id, tab_id: created.activeTabId! }
     }
     if (!browserId && b.get(id)?.settings.layout !== 'desktop') b.configure(id, { layout: 'desktop' })
-    const t = b.openTab(id, url, focus)
-    if (!t) throw new Error('Browser not found. Call list_browsers.')
-    return { browser_id: id, tab_id: t.id }
+    return { browser_id: id, tab_id: await appGo(id, url) }
   }
 
   const sourcesOf = (docs: { pageContent: string; metadata: Record<string, unknown> }[]) =>
     docs.map((d, i) => `[${i + 1}] ${d.metadata.title ?? ''}${d.metadata.source ? ` <${d.metadata.source}>` : ''} (data ${d.metadata.item})\n${d.pageContent}`).join('\n\n')
+
+  async function search(a: { query: string; read?: number; lang?: string; browser_id?: string }): Promise<string> {
+        const tab = await newTab(a.browser_id, searchUrl(a.query, a.lang), true)
+        const serp = await onTab(tab, (d) => google(d, a.query, a.lang))
+        if (!serp.results.length && !serp.text) throw new Error('Google returned no results page. Try other words or another browser_id.')
+        // Opak Google yönlendirmesi yerine Google'ın gösterdiği adres; okunan sayfanın gerçek adresi aşağıda kaynakta.
+        const list = serp.results.map((r, i) => `${i + 1}. ${r.title}\n   ${/^https?:\/\/(www\.)?google\./.test(r.url) ? r.shown || r.url : r.url}\n   ${r.snippet}`).join('\n')
+        const ids = new Set([ctx.data.add('search', `Google: ${a.query}`, [serp.answer && `Answer box:\n${serp.answer}`, list || serp.text].filter(Boolean).join('\n\n'), `google:${a.query}`).id])
+        // Kaynaklar: uygulama tarayıcısında aynı sekmede sırayla (tek sekme); Chrome'da paralel, her biri kendi sekmesinde.
+        const failed: string[] = []
+        const app = !chromeOf(tab.browser_id)
+        const read = async (r: (typeof serp.results)[number]) => {
+          try {
+            const t = app ? { browser_id: tab.browser_id, tab_id: await appGo(tab.browser_id, r.url) } : await newTab(tab.browser_id, r.url, false)
+            const p = await onTab(t, (d) => pageText(d, r.url))
+            if (p.text.length > 200) ids.add(ctx.data.add('page', p.title, p.text, p.url).id)
+          } catch (e) {
+            if (ctx.signal.aborted) throw e
+            failed.push(`${r.url}: ${(e as Error).message}`)
+          }
+        }
+        const top = serp.results.slice(0, a.read ?? 3)
+        if (app) for (const r of top) await read(r)
+        else await Promise.all(top.map(read))
+        const { docs, mode } = await ctx.data.search(a.query, 8, ids)
+        return [
+          `Google results for "${a.query}" (browser_id ${tab.browser_id}, tab ${tab.tab_id}):`,
+          serp.answer && `Answer box: ${serp.answer}`,
+          list || serp.text,
+          docs.length && `Most relevant passages (${mode} search over the pages read, saved in chat data):\n${sourcesOf(docs)}`,
+          failed.length && `Could not read: ${failed.join('; ')}`,
+        ]
+          .filter(Boolean)
+          .join('\n\n')
+  }
 
   const dataTools = [
     def(
@@ -1165,38 +1206,8 @@ ${await ctx.vision(a.question, images)}`
         lang: z.string().optional().describe('Results language, e.g. tr or en.'),
         browser_id: z.string().optional().describe('Search in this browser (e.g. chrome:<id> where the user is signed in to Google). Default: the app\'s "Web search" browser.'),
       }),
-      async (a) => {
-        const tab = await newTab(a.browser_id, searchUrl(a.query, a.lang), true)
-        const serp = await onTab(tab, (d) => google(d, a.query, a.lang))
-        if (!serp.results.length && !serp.text) throw new Error('Google returned no results page. Try other words or another browser_id.')
-        // Opak Google yönlendirmesi yerine Google'ın gösterdiği adres; okunan sayfanın gerçek adresi aşağıda kaynakta.
-        const list = serp.results.map((r, i) => `${i + 1}. ${r.title}\n   ${/^https?:\/\/(www\.)?google\./.test(r.url) ? r.shown || r.url : r.url}\n   ${r.snippet}`).join('\n')
-        const ids = new Set([ctx.data.add('search', `Google: ${a.query}`, [serp.answer && `Answer box:\n${serp.answer}`, list || serp.text].filter(Boolean).join('\n\n'), `google:${a.query}`).id])
-        // Kaynaklar paralel, her biri kendi sekmesinde (arama sekmesi etkin kalıyor).
-        const failed: string[] = []
-        await Promise.all(
-          serp.results.slice(0, a.read ?? 3).map(async (r) => {
-            try {
-              const t = await newTab(tab.browser_id, r.url, false)
-              const p = await onTab(t, (d) => pageText(d, r.url))
-              if (p.text.length > 200) ids.add(ctx.data.add('page', p.title, p.text, p.url).id)
-            } catch (e) {
-              if (ctx.signal.aborted) throw e
-              failed.push(`${r.url}: ${(e as Error).message}`)
-            }
-          }),
-        )
-        const { docs, mode } = await ctx.data.search(a.query, 8, ids)
-        return [
-          `Google results for "${a.query}" (browser_id ${tab.browser_id}, tab ${tab.tab_id}):`,
-          serp.answer && `Answer box: ${serp.answer}`,
-          list || serp.text,
-          docs.length && `Most relevant passages (${mode} search over the pages read, saved in chat data):\n${sourcesOf(docs)}`,
-          failed.length && `Could not read: ${failed.join('; ')}`,
-        ]
-          .filter(Boolean)
-          .join('\n\n')
-      },
+      // Aramalar sırayla: uygulama tarayıcısında tek sekme var, iki arama (alt agent'lar) aynı sekmeyi bozmasın.
+      (a) => (searching = searching.then(() => search(a), () => search(a))),
     ),
     def(
       'search_chat_data',

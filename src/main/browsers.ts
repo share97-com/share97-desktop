@@ -791,7 +791,8 @@ export class Browsers {
     wc.on('found-in-page', (_e, r) => this.emit.find({ matches: r.matches, active: r.activeMatchOrdinal }))
     // Yeni pencere isteyen bağlantı aynı tarayıcıda (aynı oturumla) yeni sekme.
     wc.setWindowOpenHandler(({ url }) => {
-      if (isWebUrl(url)) this.openTab(b.id, url)
+      // Tek sekme: sayfanın açtığı pencere / yeni sekme bağlantısı aynı sekmede açılıyor (her sekme ayrı işlem ve bellek).
+      if (isWebUrl(url)) void wc.loadURL(url).catch(() => {})
       return { action: 'deny' }
     })
     wc.on('before-input-event', (ev, input) => {

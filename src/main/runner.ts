@@ -3,7 +3,7 @@ import type { Overview } from '../shared/types.ts'
 import type { LocalMedia } from '../shared/contents.ts'
 import { checkPost, jobPrompt, platformOf, type JobPost } from '../shared/platforms.ts'
 import { batchesOf, canEnterSubWorkflow, dueSlot, evaluateCondition, interpolate, isPublish, MAX_LOOP_BATCHES, nextOf, NO_CONTENT, runWalk, skipReason, splitByMedia, triggersIn, type ConditionCheck, type ExprEnv, type Graph, type GraphNode, type RunStep, type Trigger, type WalkOut } from '../shared/workflow.ts'
-import { agentBrowser, connectionsState, localAccounts, openForJob, relogin, sessionProblem, syncAccounts, type LocalAccount } from './accounts.ts'
+import { agentBrowser, closeAfterJob, connectionsState, localAccounts, openForJob, relogin, sessionProblem, syncAccounts, type LocalAccount } from './accounts.ts'
 import type { Agent } from './agent/index.ts'
 import { refresh, server, ServerError } from './auth.ts'
 import { contentFiles, contentsRel, finishContent, generateContents, listContents, setContentStatus, takeContent } from './contents.ts'
@@ -33,8 +33,8 @@ type Deps = {
   exclusive: <T>(fn: () => Promise<T>) => Promise<T>
   log: (text: string, tone: 'info' | 'ok' | 'error', chatId?: string) => void
   showApp: () => void
-  /** İş başlayınca sohbet ekranını o sohbette açar. */
-  openChat: (chatId: string) => void
+  /** İş başlayınca sohbet ekranını o sohbette açar; `force` değilse kullanıcı uygulamada çalışırken ekranı elinden almaz. */
+  openChat: (chatId: string, force: boolean) => void
 }
 let deps: Deps
 export const initRunner = (d: Deps) => void (deps = d)
@@ -60,13 +60,17 @@ type Run = {
   chats: Map<string, string>
   /** Alınan içerik klasörleri → bir hesabın sonucu `status.txt`e yazıldı mı. Yazılmayan çalışma bitince `pending`e döner. */
   taken: Map<string, boolean>
+  /** Bu çalışmanın iş için açtığı (önceden kapalı) tarayıcılar: çalışma başarıyla bitince kapanır. */
+  opened: Set<string>
+  /** Elle başlatıldı ("Şimdi çalıştır"): sohbet ekranı işin sohbetinde açılır. */
+  manual: boolean
   parent?: string
   subDepth: number
   visited: Set<string>
 }
 
 const save = (r: Run, extra: Record<string, unknown> = {}) =>
-  server(`/api/v1/worker/runs/${encodeURIComponent(r.id)}`, { method: 'PATCH', body: { steps: r.steps.slice(-200), ...extra } }).catch((e) => console.error('[runner]', (e as Error).message))
+  server(`/api/v1/worker/runs/${encodeURIComponent(r.id)}`, { method: 'PATCH', body: { steps: r.steps.length > 200 ? [r.steps[0], ...r.steps.slice(-199)] : r.steps, ...extra } }).catch((e) => console.error('[runner]', (e as Error).message))
 
 const recorder = (r: Run) => async (s: RunStep) => {
   r.steps.push(r.parent ? { ...s, parent: r.parent } : s)
@@ -149,7 +153,8 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
   // Hata çift paylaşım riski taşır: iş bir kez denenir, sonucu ne olursa olsun kayda geçer.
   const out = await deps
     .exclusive(() => {
-      openForJob(account)
+      const opened = openForJob(account)
+      if (opened) r.opened.add(opened)
       const earlier = r.chats.get(accountId)
       return deps.agent.task(
         `${r.flow.name} · @${account.handle} (${label})`,
@@ -161,7 +166,7 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
           if (chatId === earlier) return
           r.chatIds.push(chatId)
           deps.log(`${r.flow.name} · @${account.handle}: ${tr() ? 'başladı' : 'started'}`, 'info', chatId)
-          deps.openChat(chatId)
+          deps.openChat(chatId, r.manual)
         },
         earlier,
       )
@@ -296,8 +301,11 @@ export const runnerBusy = () => running.size > 0
  * Akışı çalıştırır. `trigger` boşsa (elle "Şimdi çalıştır") bütün tetikleyicilerinden başlar. Sunucu aynı yuvayı
  * ikinci kez açtırmaz (`duplicate`). Dönüş: çalışmanın sonucu; atlandıysa **nedeni** (`error`).
  */
-export async function runFlow(flow: Flow, slot: number, trigger: string): Promise<RunOutcome> {
-  if (running.has(flow.id)) return { status: 'failed', error: 'this workflow is already running' }
+export async function runFlow(flow: Flow, slot: number, trigger: string, manual = false): Promise<RunOutcome> {
+  if (running.has(flow.id)) {
+    deps.log(`${flow.name}: ${tr() ? 'önceki çalışma sürüyor, bu çalışma atlandı' : 'the previous run is still going, this run was skipped'}`, 'info')
+    return { status: 'failed', error: 'this workflow is already running' }
+  }
   running.add(flow.id)
   try {
     let open: { id: string }
@@ -307,11 +315,16 @@ export async function runFlow(flow: Flow, slot: number, trigger: string): Promis
       if (e instanceof ServerError && e.status === 409) return { status: 'duplicate', error: null }
       throw e
     }
-    const r: Run = { id: open.id, flow, graph: flow.graph, steps: [], tally: { done: 0 }, chatIds: [], chats: new Map(), taken: new Map(), subDepth: 0, visited: new Set([flow.id]) }
+    const r: Run = { id: open.id, flow, graph: flow.graph, steps: [], tally: { done: 0 }, chatIds: [], chats: new Map(), taken: new Map(), opened: new Set(), manual, subDepth: 0, visited: new Set([flow.id]) }
     const starts = triggersIn(flow.graph).filter((t) => !trigger || t.id === trigger)
-    const result = await runWalk<Item>(flow.graph, starts.map((t) => ({ id: t.id, items: [] })), (n, it) => execute(r, n, it), [], describe, recorder(r))
-    const status = result.failure ? 'failed' : r.tally.done ? 'success' : 'skipped'
-    const error = result.failure ?? (status === 'skipped' ? skipReason(flow.graph, r.steps) : null)
+    // Beklenmeyen hata da çalışmayı kapatır: yoksa sunucuda "çalışıyor", içerik "yayınlanıyor" kalırdı.
+    const failure = await runWalk<Item>(flow.graph, starts.map((t) => ({ id: t.id, items: [] })), (n, it) => execute(r, n, it), [], describe, recorder(r)).then(
+      (w) => w.failure,
+      (e) => (e as Error).message || 'unexpected error',
+    )
+    const status = failure ? 'failed' : r.tally.done ? 'success' : 'skipped'
+    const error = failure ?? (status === 'skipped' ? skipReason(flow.graph, r.steps) : null)
+    if (status === 'success') for (const id of r.opened) closeAfterJob(id)
     // Hiçbir hesaba ulaşmayan içerik yanmaz: yeniden sıraya döner, nedeni notunda.
     for (const [folder, touched] of r.taken) if (!touched) await setContentStatus(flow.id, folder, 'pending', `not shared: ${(error ?? 'the run ended before an account step').slice(0, 300)}`).catch(() => {})
     // Çalışmanın sohbet süreçleri kayda: geçmiş bu sohbetlere bağlanır.
@@ -319,7 +332,8 @@ export async function runFlow(flow: Flow, slot: number, trigger: string): Promis
     await save(r, { status, error: error?.slice(0, 2000) })
     const text = status === 'success' ? (tr() ? 'tamamlandı' : 'done') : status === 'failed' ? error! : `${tr() ? 'atlandı' : 'skipped'}: ${error}`
     deps.log(`${flow.name}: ${text}`, status === 'success' ? 'ok' : status === 'failed' ? 'error' : 'info', r.chatIds.at(-1))
-    notify(`${flow.name}: ${text}`)
+    // Atlanan çalışma yalnız etkinlik kaydında: her yuvada bildirim yağmasın (içerik bittiyse ayrıca bildirildi).
+    if (status !== 'skipped') notify(`${flow.name}: ${text}`)
     return { status, error }
   } finally {
     running.delete(flow.id)
@@ -328,7 +342,6 @@ export async function runFlow(flow: Flow, slot: number, trigger: string): Promis
   }
 }
 
-const minute = (at: number) => Math.round(at / 60_000) * 60_000
 const mine = () => {
   const ov = connectionsState().overview
   return ov ? ov.workflows.filter((w) => w.workerId === ov.me) : []
@@ -338,7 +351,8 @@ const mine = () => {
 export async function runNow(id: string): Promise<RunOutcome> {
   const flow = mine().find((w) => w.id === id)
   if (!flow) throw new Error('This workflow is not assigned to this computer. Choose this device for it first.')
-  return runFlow(flow, minute(Date.now()), '')
+  // Yuva o an: aynı dakikada ikinci "Şimdi çalıştır" sunucuda kopya sayılıp sessizce düşmesin.
+  return runFlow(flow, Date.now(), '', true)
 }
 
 const file = () => dataPath('runner.json')

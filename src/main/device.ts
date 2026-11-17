@@ -20,6 +20,7 @@ const SYNC_MS = 60_000
 let agent: Agent
 let emit: (a: ActivityEntry[]) => void = () => {}
 let polling = false
+let autoBusy = false
 let running = 0
 const activity: ActivityEntry[] = []
 
@@ -54,8 +55,13 @@ async function tick() {
       for (const id of run) void runNow(id).catch((e) => log((e as Error).message, 'error'))
     }
     schedule()
-    const auto = await autoStep(agent, exclusive)
-    if (auto) log(auto.text, auto.ok ? 'ok' : 'error', auto.chatId)
+    // Beklenmiyor: paylaşım dakikalarca sürer; yoklama (cihazın canlılığı, "Şimdi çalıştır", zamanlama) onu beklemesin.
+    if (!autoBusy) {
+      autoBusy = true
+      void autoStep(agent, exclusive)
+        .then((auto) => auto && log(auto.text, auto.ok ? 'ok' : 'error', auto.chatId), (e) => console.error('[auto]', (e as Error).message))
+        .finally(() => (autoBusy = false))
+    }
   } catch (e) {
     // 401'de `server` anahtarı siliyor ve uygulama girişe dönüyor; diğer hatalar bir sonraki yoklamada yeniden deneniyor.
     if (!(e instanceof ServerError && e.status === 401)) console.error('[device]', (e as Error).message)
@@ -64,7 +70,7 @@ async function tick() {
   }
 }
 
-export function startDevice(a: Agent, onActivity: (list: ActivityEntry[]) => void, show: () => void, openChat: (chatId: string) => void) {
+export function startDevice(a: Agent, onActivity: (list: ActivityEntry[]) => void, show: () => void, openChat: (chatId: string, force: boolean) => void) {
   agent = a
   emit = onActivity
   initRunner({ agent: a, exclusive, log, showApp: show, openChat })

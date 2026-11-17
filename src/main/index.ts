@@ -141,7 +141,9 @@ function createWindow() {
     chats: (l) => send('agent:chats', l),
   })
   // Akış işi başlayınca sohbet ekranı o işin sohbetinde açılır: kullanıcı ne yapıldığını canlı görür.
-  startDevice(agent, (list) => send('activity:changed', list), showWindow, (chatId) => {
+  startDevice(agent, (list) => send('activity:changed', list), showWindow, (chatId, force) => {
+    // Zamanlanmış iş, kullanıcı uygulamada çalışırken ekranı elinden almaz (etkinlik kaydından açılır).
+    if (!force && w.isFocused()) return
     browsers?.activate(null)
     send('app:openChat', chatId)
   })
