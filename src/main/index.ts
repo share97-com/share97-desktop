@@ -23,6 +23,7 @@ import * as passwords from './passwords.ts'
 import { Browsers, L, shortcutOf } from './browsers.ts'
 import * as history from './history.ts'
 import { onSettingsChange, settings, update as updateSettings } from './settings.ts'
+import { mcpStatus, syncMcp } from './mcp.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
 import { checkForUpdates, installUpdate, onUpdate, startUpdater } from './updater.ts'
 import * as ws from './workspace.ts'
@@ -145,9 +146,18 @@ function createWindow() {
     send('app:openChat', chatId)
   })
   ws.onFilesChange(() => send('files:changed'))
+  const mcpHost = { tools: () => agent!.mcpTools(), call: (name: string, args: unknown, signal: AbortSignal) => agent!.mcpCall(name, args, signal) }
+  let mcpKey = ''
+  const mcp = (s = settings()) => {
+    const key = `${s.mcp}:${s.mcpPort}:${s.mcpToken}`
+    if (key !== mcpKey) syncMcp(s.mcp, s.mcpPort, s.mcpToken, mcpHost)
+    mcpKey = key
+  }
+  mcp()
   onSettingsChange((s) => {
     nativeTheme.themeSource = s.theme
     applyBackground()
+    mcp(s)
     send('settings:changed', s)
   })
   onUpdate((s) => send('app:update', s))
@@ -455,6 +465,7 @@ function registerIpc() {
   handle('power:set', (on, battery) => setPower(on === true, battery === true))
   handle('settings:get', () => settings())
   handle('settings:set', (patch) => updateSettings((patch ?? {}) as never))
+  handle('settings:mcpStatus', () => mcpStatus())
   handle('models:list', (c) => {
     if (!CATEGORIES.has(c as ModelCategory)) throw new Error('bad-argument')
     return models(c as ModelCategory)

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto'
 import type { Settings } from '../shared/types.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
 
@@ -16,6 +17,9 @@ const DEFAULTS: Settings = {
   theme: 'system',
   background: true,
   autostart: false,
+  mcp: false,
+  mcpPort: 9797,
+  mcpToken: '',
 }
 
 const file = () => dataPath('settings.json')
@@ -47,6 +51,10 @@ export function update(patch: Partial<Record<keyof Settings, unknown>>): Setting
   if (patch.theme === 'system' || patch.theme === 'light' || patch.theme === 'dark') next.theme = patch.theme
   if (typeof patch.background === 'boolean') next.background = patch.background
   if (typeof patch.autostart === 'boolean') next.autostart = patch.autostart
+  if (typeof patch.mcp === 'boolean') next.mcp = patch.mcp
+  if (Number.isInteger(patch.mcpPort) && (patch.mcpPort as number) >= 1024 && (patch.mcpPort as number) <= 65535) next.mcpPort = patch.mcpPort as number
+  // Anahtar uygulamada üretiliyor (dışarıdan verilemiyor); boş yama = yenile.
+  if (patch.mcpToken === '' || (next.mcp && !next.mcpToken)) next.mcpToken = randomBytes(32).toString('base64url')
   current = next
   writeJson(file(), next)
   listener(next)

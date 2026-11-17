@@ -234,6 +234,10 @@ export type Settings = {
   background: boolean
   /** Bilgisayar açılınca (gizli) başlat. */
   autostart: boolean
+  /** MCP sunucusu: dış agent'lar uygulamanın araçlarını `http://127.0.0.1:<mcpPort>/mcp` adresinden, `mcpToken` ile kullanır. */
+  mcp: boolean
+  mcpPort: number
+  mcpToken: string
 }
 
 /** Sürekli çalışma (Windows güç ayarları, bkz. `main/power.ts`). */
@@ -460,6 +464,8 @@ export type Api = {
     get(): Promise<Settings>
     set(patch: Partial<Settings>): Promise<Settings>
     onChange(cb: (s: Settings) => void): () => void
+    /** MCP sunucusu dinliyor mu; dinleyemiyorsa nedeni (port dolu gibi). */
+    mcpStatus(): Promise<{ running: boolean; error?: string }>
   }
   models: {
     list(category: ModelCategory): Promise<ModelInfo[]>

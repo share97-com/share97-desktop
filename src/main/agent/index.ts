@@ -21,6 +21,7 @@ import { stepGuard } from './guard.ts'
 import { lessons } from './lesson-store.ts'
 import { ChatData, type Stored } from './memory.ts'
 import { CHROME_PREFIX, makeTools, type Ctx } from './tools.ts'
+import type { McpTool } from '../mcp.ts'
 
 /**
  * **Agent.** LangChain `createAgent` (LangGraph ReAct döngüsü) + Share97 yapay zekâ geçidinin modelleri:
@@ -433,6 +434,94 @@ export class Agent {
     const text = last?.parts.filter((p): p is Extract<Part, { type: 'text' }> => p.type === 'text').map((p) => p.text).join('\n').trim()
     // Sonuç bildirilmedi: hata yoksa son cevap özet sayılıyor, ama iş doğrulanmış değil.
     return { chatId: id, ok: false, summary: last?.error ? `Agent error: ${last.error}` : `The agent stopped without reporting a result.${text ? ` Last answer: ${text.slice(0, 500)}` : ''}` }
+  }
+
+  /* ---------------- MCP: dış agent'lar ---------------- */
+
+  private mcpChatId = ''
+  private mcpList: McpTool[] | null = null
+
+  /** Dış agent'ın araç çağrılarının sohbeti: çağrılar ve onay kartları orada görünüyor. */
+  private mcpRecord(): Record {
+    let r = this.records.get(this.mcpChatId)
+    if (!r) {
+      this.mcpChatId = this.create()
+      r = this.records.get(this.mcpChatId)!
+      r.chat.title = 'MCP'
+    }
+    return r
+  }
+
+  /** MCP'ye açılan araçlar: uygulama agent'ının bütün araçları + agent'ın kendisi (`ask_agent`). */
+  mcpTools(): McpTool[] {
+    if (this.mcpList) return this.mcpList
+    const r = this.mcpRecord()
+    const ctx = this.context({ chat: r.chat, msg: { id: '', role: 'assistant', parts: [] } }, new AbortController().signal, DEFAULT_MODEL, this.data(r.chat.id))
+    return (this.mcpList = [
+      ...makeTools(ctx).map((t) => ({ name: t.name, description: t.description, inputSchema: z.toJSONSchema(t.schema as z.ZodType, { unrepresentable: 'any' }) })),
+      {
+        name: 'ask_agent',
+        description: "Give a task to the Share97 Desktop agent itself: it works in its own chat in the app with all these tools, its memory and the user's accounts, and this returns its final answer and chat_id. Pass chat_id to continue that chat. Long tasks take minutes.",
+        inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, chat_id: { type: 'string' } }, required: ['prompt'] },
+      },
+    ])
+  }
+
+  /**
+   * Dış agent'ın araç çağrısı. Uygulamanın kendi agent'ıyla aynı kurallar: onay politikası ayardaki gibi (Onaylı
+   * modda kart MCP sohbetinde bekliyor), güvenlik eylemleri her zaman kullanıcıya soruluyor. İstek koparsa iş duruyor.
+   */
+  async mcpCall(name: string, args: unknown, signal: AbortSignal): Promise<string> {
+    if (name === 'ask_agent') {
+      const a = args as { prompt?: unknown; chat_id?: unknown }
+      if (typeof a?.prompt !== 'string' || !a.prompt.trim()) throw new Error('prompt is required.')
+      const id = typeof a.chat_id === 'string' && this.records.has(a.chat_id) && !this.records.get(a.chat_id)!.chat.running ? a.chat_id : this.create()
+      const r = this.records.get(id)!
+      const stop = () => void this.stop(id)
+      signal.addEventListener('abort', stop)
+      try {
+        await this.run(r, a.prompt)
+      } finally {
+        signal.removeEventListener('abort', stop)
+      }
+      const last = r.chat.messages.at(-1)
+      const answer = last?.parts.filter((p): p is Extract<Part, { type: 'text' }> => p.type === 'text').map((p) => p.text).join('\n').trim()
+      return JSON.stringify({ chat_id: id, answer: answer ?? '', ...(last?.error && { error: last.error }) })
+    }
+    const r = this.mcpRecord()
+    const chat = r.chat
+    const part: ToolPart = { type: 'tool', id: randomUUID(), name, args: JSON.stringify(args ?? {}).slice(0, ARGS_TAIL), status: 'running', startedAt: Date.now() }
+    const turn: Turn = { chat, msg: { id: randomUUID(), role: 'assistant', parts: [part] } }
+    chat.messages.push(turn.msg)
+    // ponytail: MCP sohbeti tek dosya, son 200 çağrı tutuluyor; daha uzun kayıt gerekirse ayrı günlük.
+    if (chat.messages.length > 200) chat.messages.splice(0, chat.messages.length - 200)
+    this.push(chat, true)
+    const reject = () => {
+      for (const p of turn.msg.parts) if (p.type === 'approval' && p.status === 'pending') this.answer(p.id, false)
+    }
+    signal.addEventListener('abort', reject)
+    let out = ''
+    try {
+      const data = this.data(chat.id)
+      data.embeddings = embeddings()
+      const t = makeTools(this.context(turn, signal, await defaultModel(), data)).find((x) => x.name === name)
+      if (!t) throw new Error(`Unknown tool: ${name}`)
+      out = String(await (t as unknown as { invoke(a: unknown): Promise<unknown> }).invoke(args ?? {}))
+      return out
+    } catch (e) {
+      out = `Error: ${(e as Error).message}`
+      throw e
+    } finally {
+      signal.removeEventListener('abort', reject)
+      reject()
+      part.status = out.startsWith('Error:') ? 'error' : 'done'
+      part.result = out.slice(0, MAX_TOOL_RESULT_SHOWN)
+      part.ms = Date.now() - part.startedAt!
+      chat.live = null
+      chat.updatedAt = Date.now()
+      this.persist(r)
+      this.push(chat, true)
+    }
   }
 
   private finishTool(chatId: string) {
