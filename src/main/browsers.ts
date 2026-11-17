@@ -20,7 +20,7 @@ import { dataPath, debouncedWriter, readJson, writeJson } from './store.ts'
  */
 
 /** `used`: son görüldüğü / kullanıldığı an. `asleep`: sayfası kapatılmış sekmenin gezinme geçmişi (bkz. `sleepIdle`). */
-type Tab = BrowserTab & { view: WebContentsView; lastRecorded: string; pip: boolean; used: number; asleep: { entries: Electron.NavigationEntry[]; index: number } | null }
+type Tab = BrowserTab & { view: WebContentsView; lastRecorded: string; pip: number; used: number; asleep: { entries: Electron.NavigationEntry[]; index: number } | null }
 type SavedTab = { id: string; url: string }
 type Browser = Omit<BrowserInfo, 'tabs' | 'savedTabs' | 'lastUrl'> & { tabs: Tab[]; saved: SavedTab[]; savedActive: string | null; session: Session | null; proxyAuth: { username: string; password: string } | null }
 type Saved = { browsers: { id: string; name: string; note: string; color: string; settings?: BrowserSettings; tabs: SavedTab[]; activeTabId: string | null }[] }
@@ -32,7 +32,7 @@ const THUMB_EVERY_MS = 3000
 const SLEEP_AFTER_MS = 20 * 60_000
 const SLEEP_CHECK_MS = 60_000
 const THUMB_WIDTH = 480
-/** Agent'ın arka planda çalıştığı sekmenin canlı penceresi (sağ alt). */
+/** Agent'ın arka planda çalıştığı sekmenin canlı penceresi: sohbette yeri yoksa sağ altta bu genişlikte. */
 const PIP_WIDTH = 420
 const AGENT_LINGER_MS = 4000
 /** Canlı pencere yeni açıldığında sayfanın yeni ölçekte yerleşmesi için bekleme. */
@@ -75,6 +75,8 @@ export class Browsers {
   private save = debouncedWriter(() => dataPath('browsers.json'))
   private closed: { browserId: string; url: string }[] = []
   private lingers = new WeakMap<Tab, NodeJS.Timeout>()
+  /** Sohbetin içindeki canlı önizleme yuvaları (sekme → ekrandaki yer): agent'ın sekmesi orada çiziliyor. */
+  private slots = new Map<string, Bounds>()
 
   constructor(
     private win: BrowserWindow,
@@ -313,7 +315,7 @@ export class Browsers {
   }
 
   private addTab(b: Browser, url: string, id: string = randomUUID()): Tab {
-    const tab: Tab = { id, url, title: url, favicon: null, loading: true, canGoBack: false, canGoForward: false, agent: false, audible: false, muted: false, zoom: 1, view: this.newView(b), lastRecorded: '', pip: false, used: Date.now(), asleep: null }
+    const tab: Tab = { id, url, title: url, favicon: null, loading: true, canGoBack: false, canGoForward: false, agent: false, audible: false, muted: false, zoom: 1, view: this.newView(b), lastRecorded: '', pip: 0, used: Date.now(), asleep: null }
     b.tabs.push(tab)
     this.wireTab(b, tab)
     void tab.view.webContents.loadURL(url).catch(() => {})
@@ -605,10 +607,23 @@ export class Browsers {
       return false
     }
     if (t.agent) return false
+    const before = t.pip
     t.agent = true
     this.show()
     this.changed()
-    return t.pip
+    return t.pip !== before
+  }
+
+  /**
+   * **Sohbetin canlı önizleme yuvası.** Sohbet, agent'ın çalıştığı sekme için düşünme alanının altında bir yer
+   * ayırıyor ve ekrandaki yerini bildiriyor; sekme köşedeki küçük pencere yerine orada çiziliyor. `null`: yuva
+   * kalktı (sohbet kapandı, tur bitti). Dönüş: sayfanın en/boy oranı (yuva yüksekliğini ona göre ayarlıyor).
+   */
+  setSlot(tabId: string, b: Bounds | null): number {
+    if (b && b.width > 0 && b.height > 0) this.slots.set(tabId, { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) })
+    else this.slots.delete(tabId)
+    this.show()
+    return this.size.height / this.size.width
   }
 
   /** Sekmenin ekrandaki gerçek genişliği (DIP): fare koordinatı = CSS px * (bu / sayfanın innerWidth'i). */
@@ -619,8 +634,8 @@ export class Browsers {
   /** Canlı pencerede sayfa masaüstü genişliğinde düzenlenip küçültülüyor; gezinme bunu sıfırladığı için yeniden uygulanıyor. */
   private emulate(t: Tab) {
     const wc = t.view.webContents
-    if (wc.isDestroyed()) return
-    const scale = PIP_WIDTH / this.size.width
+    if (wc.isDestroyed() || !t.pip) return
+    const scale = t.pip / this.size.width
     wc.enableDeviceEmulation({ screenPosition: 'desktop', screenSize: { width: this.size.width, height: this.size.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width: this.size.width, height: this.size.height }, scale })
   }
 
@@ -640,9 +655,10 @@ export class Browsers {
    * Yalnız etkin tarayıcının etkin sekmesi ekranda. Gizli sekmeler de son görünür boyutta
    * duruyor (önizleme doğru ölçüde).
    *
-   * Agent'ın çalıştığı ama kullanıcının bakmadığı sekme sağ altta küçük bir canlı pencerede
-   * (PiP): Chromium ekranda olmayan görünüme tıklama iletmiyor ve onu çizmiyor. Sayfa
-   * `enableDeviceEmulation` ile masaüstü genişliğinde düzenlenip küçültülerek çiziliyor.
+   * Agent'ın çalıştığı ama kullanıcının bakmadığı sekme canlı bir pencerede (PiP): Chromium ekranda olmayan
+   * görünüme tıklama iletmiyor ve onu çizmiyor. Pencere sohbetin ayırdığı yuvada (`setSlot`, düşünme alanının
+   * altında); sohbet açık değilse sağ altta. Sayfa `enableDeviceEmulation` ile masaüstü genişliğinde düzenlenip
+   * küçültülerek çiziliyor. Yuvası olan sekme tur boyunca görünür kalıyor (araçlar arasında da).
    */
   private show() {
     const visible = this.current()
@@ -652,22 +668,28 @@ export class Browsers {
       for (const t of b.tabs) {
         if (t.asleep) continue
         const wc = t.view.webContents
-        if (t === visible || !t.agent) {
+        const inChat = this.slots.get(t.id)
+        if (t === visible || !(t.agent || inChat)) {
           if (t.pip) {
-            t.pip = false
+            t.pip = 0
             if (!wc.isDestroyed()) wc.disableDeviceEmulation()
           }
           t.view.setVisible(t === visible)
           t.view.setBounds(t === visible ? this.bounds : this.size)
           continue
         }
-        const scale = PIP_WIDTH / this.size.width
-        const height = Math.round(this.size.height * scale)
-        const area = this.bounds.width ? this.bounds : this.size
+        let box: Bounds
+        if (inChat) box = { ...inChat, height: Math.round((inChat.width * this.size.height) / this.size.width) }
+        else {
+          const height = Math.round((this.size.height * PIP_WIDTH) / this.size.width)
+          const area = this.bounds.width ? this.bounds : this.size
+          box = { x: area.x + area.width - PIP_WIDTH - 16, y: area.y + area.height - (height + 12) * ++slot, width: PIP_WIDTH, height }
+        }
         t.view.setVisible(true)
-        t.view.setBounds({ x: area.x + area.width - PIP_WIDTH - 16, y: area.y + area.height - (height + 12) * ++slot, width: PIP_WIDTH, height })
-        this.emulate(t)
-        t.pip = true
+        t.view.setBounds(box)
+        const changed = t.pip !== box.width
+        t.pip = box.width
+        if (changed) this.emulate(t)
         // PiP en üstte: kullanıcının açık sekmesinin de üstünde.
         this.win.contentView.addChildView(t.view)
       }

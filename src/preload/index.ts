@@ -72,6 +72,7 @@ const api: Api = {
     reload: () => call('browsers:reload'),
     stop: () => call('browsers:stop'),
     setBounds: (b) => call('browsers:setBounds', b),
+    previewSlot: (tab, b) => call('browsers:previewSlot', tab, b),
     find: (text, forward) => call('browsers:find', text, forward),
     stopFind: () => call('browsers:stopFind'),
     zoom: (f) => call('browsers:zoom', f),

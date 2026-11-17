@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleDashed, Clock, Copy, Database, FileUp, Loader2, PenLine, Pencil, RotateCcw, Square, Table2, TriangleAlert, Users, Wrench, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, Brain, Check, ChevronDown, ChevronRight, CircleDashed, Clock, Copy, Database, ExternalLink, FileUp, Loader2, MonitorPlay, PenLine, Pencil, RotateCcw, Square, Table2, TriangleAlert, Users, Wrench, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -135,7 +135,7 @@ export function Chat({ chatId, onCreated }: { chatId: string | null; onCreated: 
             // Sohbetin tamamı seçilebilir ve kopyalanabilir (düğmeler hariç).
             <div className="mx-auto max-w-3xl select-text space-y-6 px-4 py-8">
               {messages.map((m, i) => (
-                <Message key={m.id} m={m} live={!!chat?.running && i === messages.length - 1} onRetry={!chat?.running && i === messages.length - 1 && lastUser ? () => void send(textOf(lastUser)) : undefined} />
+                <Message key={m.id} m={m} live={!!chat?.running && i === messages.length - 1} tab={chat?.running && i === messages.length - 1 ? (chat.live ?? null) : null} onRetry={!chat?.running && i === messages.length - 1 && lastUser ? () => void send(textOf(lastUser)) : undefined} />
               ))}
             </div>
           ) : (
@@ -183,7 +183,7 @@ function Welcome({ onPick }: { onPick: (s: string) => void }) {
   )
 }
 
-function Message({ m, live, onRetry }: { m: ChatMessage; live: boolean; onRetry?: () => void }) {
+function Message({ m, live, tab, onRetry }: { m: ChatMessage; live: boolean; tab?: ChatT['live']; onRetry?: () => void }) {
   if (m.role === 'user') {
     const text = textOf(m)
     return (
@@ -221,6 +221,7 @@ function Message({ m, live, onRetry }: { m: ChatMessage; live: boolean; onRetry?
             <Loader2 className="size-4 animate-spin" /> {t.thinking}
           </p>
         )}
+        {tab && <LivePreview tab={tab} />}
         {m.error && <ErrorNote error={m.error} />}
         {!live && (text || onRetry) && (
           <div className={`flex gap-0.5 transition focus-within:opacity-100 group-hover:opacity-100 ${m.error ? '' : 'opacity-0'}`}>
@@ -233,6 +234,64 @@ function Message({ m, live, onRetry }: { m: ChatMessage; live: boolean; onRetry?
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * **Agent'ın çalıştığı sekmenin canlı görüntüsü**, düşünme alanının altında. Yer burada ayrılıyor, sekmenin kendisi
+ * main süreçte bu yerin üstüne çiziliyor (`browsers.previewSlot`): agent tıklarken ve yazarken sayfa burada canlı
+ * görünüyor. Yukarı kaydırınca sohbetin dibine yapışıyor; yer görünmüyorsa sekme köşedeki küçük pencereye dönüyor.
+ */
+function LivePreview({ tab }: { tab: NonNullable<ChatT['live']> }) {
+  const box = useRef<HTMLDivElement>(null)
+  const [ratio, setRatio] = useState(0.625)
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    const scroller = el.closest<HTMLElement>('[data-chat-id]')
+    let frame = 0
+    let last = ''
+    const sync = () => {
+      frame = 0
+      const r = el.getBoundingClientRect()
+      const s = scroller?.getBoundingClientRect()
+      const shown = r.width > 0 && (!s || (r.top >= s.top - 1 && r.bottom <= s.bottom + 1))
+      const key = shown ? `${r.x},${r.y},${r.width},${r.height}` : ''
+      if (key === last) return
+      last = key
+      void api().browsers.previewSlot(tab.tabId, shown ? { x: r.x, y: r.y, width: r.width, height: r.height } : null).then(setRatio)
+    }
+    const queue = () => void (frame ||= requestAnimationFrame(sync))
+    queue()
+    const ro = new ResizeObserver(queue)
+    ro.observe(el)
+    if (scroller) ro.observe(scroller)
+    scroller?.addEventListener('scroll', queue, { passive: true })
+    window.addEventListener('resize', queue)
+    // Akan metin yuvayı aşağı itiyor: yer kısa aralıkla da yoklanıyor.
+    const timer = setInterval(queue, 250)
+    return () => {
+      cancelAnimationFrame(frame)
+      clearInterval(timer)
+      ro.disconnect()
+      scroller?.removeEventListener('scroll', queue)
+      window.removeEventListener('resize', queue)
+      void api().browsers.previewSlot(tab.tabId, null)
+    }
+  }, [tab.tabId])
+  const open = () => void api().browsers.activate(tab.browserId).then(() => api().browsers.activateTab(tab.browserId, tab.tabId))
+  return (
+    <div className="sticky bottom-2 z-10 overflow-hidden rounded-lg border border-line bg-panel shadow-[var(--shadow-card)]">
+      <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted">
+        <MonitorPlay className="size-3.5 shrink-0 animate-pulse text-brand" />
+        <span className="shrink-0 font-medium text-fg">{t.livePreview}</span>
+        <span className="min-w-0 flex-1 truncate">{tab.title}</span>
+        <button type="button" className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-raised hover:text-fg" onClick={open} title={t.openTab}>
+          <ExternalLink className="size-3.5" /> {t.openTab}
+        </button>
+      </div>
+      <div ref={box} className="w-full bg-bg" style={{ aspectRatio: `${1 / ratio}` }} />
     </div>
   )
 }
@@ -657,6 +716,13 @@ function Composer({ chatId, running, cost, queued, dataCount, onData, lastSent, 
             {(Object.keys(t.efforts) as Effort[]).map((k) => (
               <option key={k} value={k}>
                 {t.effort}: {t.efforts[k]}
+              </option>
+            ))}
+          </select>
+          <select value={settings?.approval ?? 'ask'} onChange={(e) => update({ approval: e.target.value as 'auto' | 'ask' })} className={`rounded-full border bg-transparent px-2.5 py-1 text-xs hover:bg-raised ${settings?.approval === 'auto' ? 'border-brand text-brand' : 'border-muted/70 text-muted'}`} aria-label={t.approvals} title={t.modeHint}>
+            {(['ask', 'auto'] as const).map((k) => (
+              <option key={k} value={k}>
+                {t.modes[k]}
               </option>
             ))}
           </select>

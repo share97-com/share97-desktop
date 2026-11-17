@@ -12,7 +12,7 @@ const DEFAULTS: Settings = {
   videoModel: null,
   speechModel: null,
   effort: 'medium',
-  approval: 'risky',
+  approval: 'ask',
   theme: 'system',
   background: true,
   autostart: false,
@@ -23,7 +23,14 @@ let current: Settings | null = null
 let listener: (s: Settings) => void = () => {}
 export const onSettingsChange = (cb: (s: Settings) => void) => (listener = cb)
 
-export const settings = (): Settings => (current ??= { ...DEFAULTS, ...readJson<Partial<Settings>>(file(), {}) })
+const APPROVALS = new Set(['auto', 'ask'])
+
+export const settings = (): Settings => {
+  if (current) return current
+  const saved = { ...DEFAULTS, ...readJson<Partial<Settings>>(file(), {}) }
+  if (!APPROVALS.has(saved.approval)) saved.approval = DEFAULTS.approval
+  return (current = saved)
+}
 
 const EFFORTS = new Set(['off', 'low', 'medium', 'high'])
 const model = (v: unknown) => (v === null || (typeof v === 'string' && v.length < 200) ? v : undefined)
@@ -36,7 +43,7 @@ export function update(patch: Partial<Record<keyof Settings, unknown>>): Setting
     if (v !== undefined) next[k] = v as string | null
   }
   if (typeof patch.effort === 'string' && EFFORTS.has(patch.effort)) next.effort = patch.effort as Settings['effort']
-  if (patch.approval === 'risky' || patch.approval === 'all') next.approval = patch.approval
+  if (typeof patch.approval === 'string' && APPROVALS.has(patch.approval)) next.approval = patch.approval as Settings['approval']
   if (patch.theme === 'system' || patch.theme === 'light' || patch.theme === 'dark') next.theme = patch.theme
   if (typeof patch.background === 'boolean') next.background = patch.background
   if (typeof patch.autostart === 'boolean') next.autostart = patch.autostart

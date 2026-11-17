@@ -58,10 +58,11 @@ const opened: string[] = []
 const logs: string[] = []
 runner.initRunner({
   agent: {
-    task: async (title: string, prompt: string, _model: unknown, browserId: string, onStart: (id: string) => void) => {
+    task: async (title: string, prompt: string, _model: unknown, browserId: string, onStart: (id: string) => void, chatId?: string) => {
       tasks.push({ title, prompt, browserId })
-      onStart(`chat${tasks.length}`)
-      return { chatId: `chat${tasks.length}`, ...taskResult }
+      const id = chatId ?? `chat${tasks.length}`
+      onStart(id)
+      return { chatId: id, ...taskResult }
     },
   } as never,
   exclusive: (fn) => fn(),
@@ -120,7 +121,7 @@ test('agent düğümü: içerik olmadan görevi hesabın tarayıcısında yapar;
   const w = flow('wf3', { nodes: [node('t1', 'trigger'), node('a1', 'agent', { accountId: 'acc1', prompt: 'Reply to new comments' })], edges: [{ source: 't1', target: 'a1' }] })
   taskResult = { ok: true, summary: 'replied to 2 comments' }
   assert.deepEqual(await runner.runFlow(w as never, 60_000, ''), { status: 'success', error: null })
-  assert.match(tasks.at(-1)!.prompt, /Task from the owner's Share97 workflow: Reply to new comments/)
+  assert.match(tasks.at(-1)!.prompt, /Chat message from the owner's Share97 workflow .*: Reply to new comments/)
   assert.equal(last(/publications$/).body!.post, undefined, 'görev: paylaşım kaydı açılmaz')
   taskResult = { ok: false, summary: 'a captcha appeared' }
   const failed = await runner.runFlow(w as never, 120_000, '')
@@ -128,6 +129,18 @@ test('agent düğümü: içerik olmadan görevi hesabın tarayıcısında yapar;
   assert.match(failed.error ?? '', /@shop: a captcha appeared/)
   const none = flow('wf4', { nodes: [node('t1', 'trigger'), node('a1', 'agent', { accountId: 'acc1', prompt: ' ' })], edges: [{ source: 't1', target: 'a1' }] })
   assert.match((await runner.runFlow(none as never, 60_000, '')).error ?? '', /instruction is empty/)
+})
+
+test('sohbet mesajı düğümleri: aynı hesabın adımları tek sohbette sırayla yazılır', async () => {
+  const w = flow('wf5', { nodes: [node('t1', 'trigger'), node('a1', 'agent', { accountId: 'acc1', prompt: 'Open the notifications' }), node('a2', 'agent', { accountId: 'acc1', prompt: 'Reply to the first one' })], edges: [{ source: 't1', target: 'a1' }, { source: 'a1', target: 'a2' }] })
+  taskResult = { ok: true, summary: 'done' }
+  const before = tasks.length
+  const seen = opened.length
+  assert.deepEqual(await runner.runFlow(w as never, 60_000, ''), { status: 'success', error: null })
+  assert.deepEqual(tasks.slice(before).map((t) => /: (Open the notifications|Reply to the first one)/.exec(t.prompt)?.[1]), ['Open the notifications', 'Reply to the first one'])
+  assert.equal(opened.length, seen + 1, 'ikinci mesaj yeni sohbet açmaz, ilkinin sohbetine yazılır')
+  const done = last(/runs\/run\d+$/).body as { steps: { output?: { chatIds?: string[] } }[] }
+  assert.equal(done.steps[0].output?.chatIds?.length, 1, 'çalışma tek sohbete bağlı')
 })
 
 test('zamanlayıcı: yalnız bu cihazın açık akışları, saati gelen yuvada bir kez başlar', async () => {

@@ -192,10 +192,10 @@ function AgentSection() {
         </div>
       </Card>
       <Card title={t.approvals}>
-        {(['risky', 'all'] as const).map((v) => (
+        {(['ask', 'auto'] as const).map((v) => (
           <label key={v} className={`mb-2 flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm last:mb-0 ${s.approval === v ? 'border-brand bg-brand/10' : 'border-line hover:bg-raised'}`}>
             <input type="radio" name="approval" checked={s.approval === v} onChange={() => update({ approval: v })} className="accent-[var(--color-brand)]" />
-            {v === 'risky' ? t.approvalRisky : t.approvalAll}
+            {v === 'ask' ? t.approvalAsk : t.approvalAuto}
           </label>
         ))}
       </Card>

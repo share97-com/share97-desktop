@@ -429,13 +429,54 @@ const TABLES = `(() => {
 
 export const extractTables = (d: Driver) => d.evaluate<string[][][]>(TABLES)
 
-export async function uploadFiles(d: Driver, ref: Ref, files: string[]) {
-  ref = clean(ref)
-  if (/^f\d+\./.test(ref)) throw new Error('File inputs inside frames are not supported; open the frame URL in a tab instead.')
-  const { result } = await d.cdp<{ result: { objectId?: string; subtype?: string } }>('Runtime.evaluate', { expression: BY_REF(ref) })
-  if (!result.objectId || result.subtype === 'null') throw new Error(`Element [${ref}] not found.`)
+/** Dosya türünün `accept` içinde aranacak adları: MIME öneki ve uzantılar. */
+const ACCEPTS: Record<string, string[]> = { image: ['image/', '.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic'], video: ['video/', '.mp4', '.mov', '.webm', '.m4v'], audio: ['audio/', '.mp3', '.wav', '.m4a'] }
+
+/**
+ * Sayfadaki en uygun dosya alanı (shadow DOM dahil, gizliler de: siteler alanı gizleyip düğmeyle açıyor). `accept`
+ * yüklenecek dosyaların türünü kabul edenler önde; eşitlikte belgede en son eklenen (yeni açılan pencere).
+ */
+const BEST_FILE_INPUT = (kinds: string[], inside: string | null) => `(() => { ${DEEP}
+  const kinds = ${JSON.stringify(kinds)}, accepts = ${JSON.stringify(ACCEPTS)}
+  const scope = ${inside ? `(${BY_REF(inside)})` : 'null'}
+  const all = deep(document, 'input[type=file]').filter((el) => !el.disabled)
+  const takes = (el, k) => { const a = (el.accept || '').toLowerCase(); return !a || a.includes('*/*') || (accepts[k] || []).some((x) => a.includes(x)) }
+  const score = (el, i) => kinds.filter((k) => takes(el, k)).length * 10 + (scope && (scope.contains(el) || (scope.closest('form,[role=dialog],dialog') || scope.parentElement || scope).contains(el)) ? 5 : 0) + (kinds.length > 1 && el.multiple ? 2 : 0) + i / 1000
+  return all.map((el, i) => [el, score(el, i)]).filter(([el]) => kinds.every((k) => takes(el, k)) || kinds.length > 1).sort((a, b) => b[1] - a[1])[0]?.[0] || null
+})()`
+
+async function setFiles(d: Driver, expression: string, files: string[]) {
+  const { result } = await d.cdp<{ result: { objectId?: string; subtype?: string } }>('Runtime.evaluate', { expression })
+  if (!result.objectId || result.subtype === 'null') return false
   await d.cdp('DOM.setFileInputFiles', { files, objectId: result.objectId })
   await settle(d)
+  return true
+}
+
+/**
+ * **Dosya yükleme.** `ref` bir dosya alanıysa doğrudan ona. Değilse (ya da ref yoksa) sayfadaki en uygun dosya alanı
+ * bulunuyor; yoksa `ref`teki "Yükle / Bilgisayardan seç" düğmesine basılıyor (işletim sisteminin dosya penceresi
+ * açılmadan, CDP yakalıyor) ve açılan alan dolduruluyor. Dönüş: nasıl yüklendiği.
+ */
+export async function uploadFiles(d: Driver, ref: Ref | undefined, files: string[], kinds: string[]): Promise<string> {
+  const r = ref === undefined ? null : clean(ref)
+  if (r && /^f\d+\./.test(r)) throw new Error('File inputs inside frames are not supported; open the frame URL in a tab instead.')
+  if (r) {
+    const isInput = await d.evaluate<boolean>(`(() => { const el = ${BY_REF(r)}; return !!el && el.tagName === 'INPUT' && el.type === 'file' })()`)
+    if (isInput && (await setFiles(d, BY_REF(r), files))) return `into the file input [${r}]`
+  }
+  if (await setFiles(d, BEST_FILE_INPUT(kinds, r), files)) return "into the page's file input (found by itself)"
+  if (!r) throw new Error('No file input on this page. Open the upload dialog first (click "Upload" / "Select from computer"), or pass the ref of that button.')
+  // Düğme alanı tıklamada oluşturuyor: dosya penceresi yakalanıyor, açılmıyor.
+  await d.cdp('Page.enable').catch(() => {})
+  const intercept = await d.cdp('Page.setInterceptFileChooserDialog', { enabled: true }).then(() => true, () => false)
+  try {
+    await click(d, r)
+    if (await setFiles(d, BEST_FILE_INPUT(kinds, null), files)) return `after clicking [${r}]`
+  } finally {
+    if (intercept) await d.cdp('Page.setInterceptFileChooserDialog', { enabled: false }).catch(() => {})
+  }
+  throw new Error(`Clicked [${r}] but no file input appeared. read_page again: the site may show a menu first ("Select from computer").`)
 }
 
 /** Bir eylemden sonra sayfanın yüklenmesi ya da tepki vermesi için kısa bekleme. */

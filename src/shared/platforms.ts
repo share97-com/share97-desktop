@@ -53,7 +53,7 @@ export function jobPrompt(o: { platform: string; handle: string; browserId: stri
   return [
     `Work only in browser_id ${o.browserId}: it is signed in to the ${label} account @${o.handle}. Stay on ${label}.`,
     ...(o.post.instruction
-      ? [`Task from the owner's Share97 workflow: ${o.post.instruction}`]
+      ? [`Chat message from the owner's Share97 workflow (one step of the workflow; earlier steps of this run, if any, are above in this chat: build on their results): ${o.post.instruction}`]
       : [`Publish this ${o.post.type ?? 'feed'} post on the account, uploading every file, and check on the page that it was published.`]),
     ...(o.post.caption ? [`Post caption (use it exactly): ${JSON.stringify(o.post.caption)}`] : []),
     ...(o.post.firstComment ? [`Right after publishing, add this first comment: ${JSON.stringify(o.post.firstComment)}`] : []),

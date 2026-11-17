@@ -353,6 +353,12 @@ function registerIpc() {
     b().setBounds({ x, y, width, height })
   })
 
+  handle('browsers:previewSlot', (tab, raw) => {
+    if (raw === null) return b().setSlot(str(tab), null)
+    const { x, y, width, height } = (raw ?? {}) as Bounds
+    if (![x, y, width, height].every(Number.isFinite)) throw new Error('bad-argument')
+    return b().setSlot(str(tab), { x, y, width, height })
+  })
   handle('browsers:find', (text, forward) => b().find(str(text, 500), forward !== false))
   handle('browsers:stopFind', () => b().stopFind())
   handle('browsers:zoom', (f) => {

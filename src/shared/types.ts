@@ -211,8 +211,11 @@ export type Settings = {
   videoModel: string | null
   speechModel: string | null
   effort: Effort
-  /** `risky`: yalnız para harcatan / geri alınamayan eylemlerde sor. `all`: her tıklama ve yazmada sor. */
-  approval: 'risky' | 'all'
+  /**
+   * `ask`: para harcatan, yayınlayan, silen ya da hesap ayarını değiştiren eylemde kullanıcıya sor.
+   * `auto`: hiçbir şey sorulmaz, her onay kendiliğinden verilir (tam otomasyon; sohbette kayıt kalır).
+   */
+  approval: 'auto' | 'ask'
   /** Uygulamanın teması; `system` Windows'u izliyor. */
   theme: 'system' | 'light' | 'dark'
   /** Pencere kapatılınca tepside çalışmaya devam et: sunucudan gelen akış işleri sürsün. */
@@ -282,6 +285,8 @@ export type Chat = {
   dataCount: number
   /** Başıboş görev (sunucudan gelen akış işi): onaylar kendiliğinden veriliyor. */
   task?: boolean
+  /** Agent'ın bu turda çalıştığı uygulama sekmesi: sohbette düşünme alanının altında canlı önizlemesi. */
+  live?: { browserId: string; tabId: string; title: string } | null
 }
 
 /** `note`: modele mesajla birlikte giden bağlam (işaretlenen hesaplar ve tarayıcıları). */
@@ -393,6 +398,8 @@ export type Api = {
     reload(): Promise<void>
     stop(): Promise<void>
     setBounds(b: Bounds): Promise<void>
+    /** Sohbetteki canlı önizleme yuvası (agent'ın sekmesi orada çiziliyor); dönüş sayfanın yükseklik/genişlik oranı. */
+    previewSlot(tabId: string, b: Bounds | null): Promise<number>
     find(text: string, forward: boolean): Promise<void>
     stopFind(): Promise<void>
     zoom(factor: number | null): Promise<void>

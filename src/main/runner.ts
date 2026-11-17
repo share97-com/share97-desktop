@@ -56,6 +56,8 @@ type Run = {
   /** Gövdelerle (döngü, alt akış) paylaşılan sayaç: `done` bir hesapta yapılan iş sayısı. Yayın ücretsiz. */
   tally: { done: number }
   chatIds: string[]
+  /** Hesap → bu çalışmadaki sohbeti: aynı hesabın sonraki adımları (sohbet mesajı düğümleri) aynı sohbete yazılıyor. */
+  chats: Map<string, string>
   /** Alınan içerik klasörleri → bir hesabın sonucu `status.txt`e yazıldı mı. Yazılmayan çalışma bitince `pending`e döner. */
   taken: Map<string, boolean>
   parent?: string
@@ -148,11 +150,21 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
   const out = await deps
     .exclusive(() => {
       openForJob(account)
-      return deps.agent.task(`${r.flow.name} · @${account.handle} (${label})`, prompt, null, browserId, (chatId) => {
-        r.chatIds.push(chatId)
-        deps.log(`${r.flow.name} · @${account.handle}: ${tr() ? 'başladı' : 'started'}`, 'info', chatId)
-        deps.openChat(chatId)
-      })
+      const earlier = r.chats.get(accountId)
+      return deps.agent.task(
+        `${r.flow.name} · @${account.handle} (${label})`,
+        prompt,
+        null,
+        browserId,
+        (chatId) => {
+          r.chats.set(accountId, chatId)
+          if (chatId === earlier) return
+          r.chatIds.push(chatId)
+          deps.log(`${r.flow.name} · @${account.handle}: ${tr() ? 'başladı' : 'started'}`, 'info', chatId)
+          deps.openChat(chatId)
+        },
+        earlier,
+      )
     })
     .catch((e) => ({ ok: false, summary: `may be partly done, check the account before retrying: ${(e as Error).message.slice(0, 400)}`, permalink: undefined, expired: false }))
   await result(out.ok, out.ok ? (out.permalink ?? '') : out.summary)
@@ -295,7 +307,7 @@ export async function runFlow(flow: Flow, slot: number, trigger: string): Promis
       if (e instanceof ServerError && e.status === 409) return { status: 'duplicate', error: null }
       throw e
     }
-    const r: Run = { id: open.id, flow, graph: flow.graph, steps: [], tally: { done: 0 }, chatIds: [], taken: new Map(), subDepth: 0, visited: new Set([flow.id]) }
+    const r: Run = { id: open.id, flow, graph: flow.graph, steps: [], tally: { done: 0 }, chatIds: [], chats: new Map(), taken: new Map(), subDepth: 0, visited: new Set([flow.id]) }
     const starts = triggersIn(flow.graph).filter((t) => !trigger || t.id === trigger)
     const result = await runWalk<Item>(flow.graph, starts.map((t) => ({ id: t.id, items: [] })), (n, it) => execute(r, n, it), [], describe, recorder(r))
     const status = result.failure ? 'failed' : r.tally.done ? 'success' : 'skipped'

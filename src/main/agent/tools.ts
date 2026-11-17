@@ -6,7 +6,7 @@ import ExcelJS from 'exceljs'
 import JSZip from 'jszip'
 import { extractText, getDocumentProxy } from 'unpdf'
 import { z } from 'zod'
-import type { ChromeInstance, Settings } from '../../shared/types.ts'
+import type { ChromeInstance, FileKind, Settings } from '../../shared/types.ts'
 import { toUrl } from '../address.ts'
 import { api, apiJson, models } from '../gateway.ts'
 import { pcmToWav, rateOf } from '../audio.ts'
@@ -45,11 +45,15 @@ export type Ctx = {
   approve(text: string): Promise<boolean>
   /** Üretilen dosya sohbette kart olarak. */
   file(fullPath: string): void
+  /** Agent bir uygulama sekmesinde çalışıyor: sohbette canlı önizlemesi. */
+  live(browserId: string, tabId: string, title: string): void
   /** Kullanıcıya doğrudan görünen uyarı (model aktarmasa da). */
   notice(text: string): void
   cost(usd: number): void
-  /** Ekran görüntüsünü görsel destekli modele sorar. */
-  vision(question: string, dataUrl: string): Promise<string>
+  /** Ekran görüntüsünü (ya da birkaç görseli birlikte) görsel destekli modele sorar. */
+  vision(question: string, dataUrl: string | string[]): Promise<string>
+  /** Bu sohbetteki medya ve dosyalar: agent'ın ürettikleri ve kullanıcının eklediği yollar, en yenisi sonda. */
+  media(): { path: string; name: string; kind: FileKind; from: 'agent' | 'user' }[]
   /** Sohbetin kalıcı verisi: aramalar, sayfalar, raporların yapısı (memory.ts). */
   data: ChatData
   /** Başıboş görev tek bir tarayıcıya kilitli (hesabın bağlantıda tanımlı tarayıcısı): başka tarayıcı kullanılamaz, yenisi açılamaz. */
@@ -188,6 +192,7 @@ export function makeTools(ctx: Ctx) {
     const tab = b.tab(a.browser_id, a.tab_id)
     const wc = b.contents(a.browser_id, a.tab_id)
     if (!tab || !wc) throw new Error('Browser or tab not found. Call list_browsers.')
+    ctx.live(a.browser_id, tab.id, b.get(a.browser_id)?.name ?? '')
     if (b.setAgent(a.browser_id, tab.id, true)) await new Promise((r) => setTimeout(r, AGENT_SETTLE_MS))
     try {
       const out = await fn(page.electronDriver(wc, b.viewWidth(a.browser_id, tab.id)))
@@ -356,8 +361,6 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     if (!wc) throw new Error('Browser or tab not found. Call list_browsers.')
     return wc
   }
-
-  const askAll = () => ctx.settings().approval === 'all'
 
   const browserTools = [
     def(
@@ -551,7 +554,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
       (a) =>
         onTab(a, async (d) => {
           const el = await page.describe(d, a.ref)
-          if (a.risky || RISKY.test(el.label) || askAll()) {
+          if (a.risky || RISKY.test(el.label)) {
             if (!(await ctx.approve(`"${el.label || el.tag}" öğesine tıklanacak (${(await d.info()).url}).`))) return 'The user rejected this click. Do not retry it; ask what to do instead.'
           }
           await page.click(d, a.ref)
@@ -565,7 +568,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
       (a) =>
         onTab(a, async (d) => {
           const el = await page.describe(d, a.ref)
-          if (a.risky || askAll()) {
+          if (a.risky) {
             if (!(await ctx.approve(`"${el.label || el.tag}" alanına yazılacak: "${a.text.slice(0, 200)}"${a.submit ? ' ve gönderilecek' : ''}.`))) return 'The user rejected this input.'
           }
           await page.type(d, a.ref, a.text, { clear: a.clear ?? true, submit: a.submit ?? false })
@@ -603,7 +606,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
           if (!p) return `Not found on the visible screen: "${a.target}". Scroll, or describe it differently, or use look_at_page to see what is there.`
           const el = await page.atPoint(d, p)
           const label = el.label || p.label
-          if (a.risky || RISKY.test(`${p.label} ${el.label}`) || askAll()) {
+          if (a.risky || RISKY.test(`${p.label} ${el.label}`)) {
             if (!(await ctx.approve(`"${label || a.target}" öğesine tıklanacak (${(await d.info()).url}).`))) return 'The user rejected this click. Do not retry it; ask what to do instead.'
           }
           await d.scanEffect?.(false, p)
@@ -619,15 +622,67 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     ),
     def(
       'upload_files',
-      'Put workspace files into a file input (ref from read_page) for upload, e.g. generated images into an ad media picker.',
-      z.object({ ...target, ref: z.union([z.number().int(), z.string()]).describe('Ref from read_page, e.g. 12 or f1.3'), paths: z.array(z.string()).min(1).describe('Paths relative to the workspace folder.') }),
+      'Upload workspace files (generated images/videos from this chat, downloads, user files) to the page: post composers, ad media pickers, profile photos. ref is optional: give the file input OR the "Upload / Select from computer" button; without ref the best file input on the page is found by itself (hidden ones too). The OS file dialog never opens. After it, read_page or look_at_page to confirm the preview appeared.',
+      z.object({ ...target, ref: z.union([z.number().int(), z.string()]).optional().describe('Ref from read_page of the file input or the upload button, e.g. 12. Optional.'), paths: z.array(z.string()).min(1).describe('Workspace paths, e.g. from list_chat_media.') }),
       (a) =>
         onTab(a, async (d) => {
           const files = await Promise.all(a.paths.map((p) => ws.existing(p)))
-          if (askAll() && !(await ctx.approve(`${files.length} dosya sayfaya yüklenecek: ${a.paths.join(', ')}`))) return 'The user rejected this upload.'
-          await page.uploadFiles(d, a.ref, files)
-          return `Attached ${files.length} file(s) to [${a.ref}].`
+          const how = await page.uploadFiles(d, a.ref, files, [...new Set(files.map(kindOf))])
+          return `Attached ${files.length} file(s) ${how}: ${a.paths.join(', ')}. Wait for the preview, then continue.`
         }),
+    ),
+  ]
+
+  /**
+   * **Agent'ın kendi kodu.** Tekrarlanan ya da toplu sayfa işi (bütün yorumları toplamak, listeyi kaydırarak okumak,
+   * çok alanı doldurmak) için agent sitenin yapısına göre JavaScript yazıp sekmede çalıştırıyor; çalışanı site adıyla
+   * çalışma klasörüne (`scripts/<site>/<ad>.js`) kaydediyor ve aynı sitede bir dahaki sefere yeniden kullanıyor.
+   */
+  const SCRIPT_MS = 60_000
+  const hostOf = (url: string) => {
+    try {
+      return new URL(url).hostname.replace(/^www\./, '')
+    } catch {
+      return ''
+    }
+  }
+  const scriptPath = (site: string, name: string) => `scripts/${safeName(hostOf(`https://${site.replace(/^https?:\/\//, '')}`) || site)}/${safeName(name)}.js`
+  const codeTools = [
+    def(
+      'run_script',
+      "Run your own JavaScript in a tab's page (main frame) and get its result: for bulk or repetitive page work that would take many clicks (collect every comment/row/product on the page, scroll a list and gather items, read data from the DOM, fill many fields, check what a site's structure is). Write it for THIS site's structure (look at read_page first). The code is the body of an async function: use await, `args` holds your args, return a JSON-serializable value (keep it small). It runs with the page's own rights, like a click. Set risky=true when it changes something (posts, deletes, follows, submits). Pass script instead of code to run one saved with save_script.",
+      z.object({ ...target, code: z.string().max(20_000).optional(), script: z.string().optional().describe('Saved script path from list_scripts, e.g. scripts/instagram.com/collect-comments.js'), args: z.record(z.string(), z.unknown()).optional(), risky: z.boolean().optional() }),
+      (a) =>
+        onTab(a, async (d) => {
+          const code = a.script ? (await readFile(await ws.existing(a.script), 'utf8')).replace(/^\/\/.*\n/, '') : a.code
+          if (!code?.trim()) throw new Error('Give code or script.')
+          if (a.risky && !(await ctx.approve(`Sayfada kod çalıştırılacak (${(await d.info()).url}): ${(a.script ?? code).slice(0, 300)}`))) return 'The user rejected this script.'
+          const wrapped = `(async () => { try { const out = await (async (args) => {\n${code}\n})(${JSON.stringify(a.args ?? {})}); return JSON.stringify(out === undefined ? null : out) } catch (e) { return 'Error: ' + (e && e.stack || e) } })()`
+          const out = await Promise.race([d.evaluate<string>(wrapped), new Promise<string>((_, reject) => setTimeout(() => reject(new Error(`The script ran longer than ${SCRIPT_MS / 1000} s.`)), SCRIPT_MS))])
+          await page.settle(d, 200)
+          return typeof out === 'string' && out.startsWith('Error: ') ? `Script error: ${out.slice(7, 2000)}\nFix the code (check selectors with read_page) and run it again.` : `Result: ${out}`
+        }),
+    ),
+    def(
+      'save_script',
+      'Save a script that worked with run_script, for this site, so you (and later chats) can run it again with run_script script=<path>. Only scripts you ran successfully. Saving again with the same name replaces it.',
+      z.object({ site: z.string().describe('Host, e.g. instagram.com'), name: z.string().max(60).describe('Short kebab-case name, e.g. collect-comments'), description: z.string().max(300).describe('What it does, its args and what it returns.'), code: z.string().max(20_000) }),
+      async (a) => {
+        const full = await ws.save(scriptPath(a.site, a.name), `// ${a.description.replace(/\n/g, ' ')}\n${a.code}`, true)
+        return `Saved ${ws.rel(full)}. Run it with run_script script=${ws.rel(full)}.`
+      },
+    ),
+    def(
+      'list_scripts',
+      'List your saved scripts (all, or for one site) with what each does. Check it before writing new code for a site.',
+      z.object({ site: z.string().optional().describe('Host, e.g. instagram.com') }),
+      async (a) => {
+        const dir = a.site ? scriptPath(a.site, 'x').replace(/x\.js$/, '') : 'scripts/'
+        const files = (await ws.list(1000)).filter((f) => f.path.startsWith(dir) && f.path.endsWith('.js'))
+        if (!files.length) return a.site ? `No saved scripts for ${a.site}.` : 'No saved scripts yet.'
+        const lines = await Promise.all(files.map(async (f) => `${f.path}: ${(await readFile(await ws.existing(f.path), 'utf8')).split('\n')[0].replace(/^\/\/\s*/, '').slice(0, 300)}`))
+        return lines.join('\n')
+      },
     ),
   ]
 
@@ -913,6 +968,28 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
   }
 
   const mediaTools = [
+    def(
+      'list_chat_media',
+      'List the media and files of THIS chat: images, videos and audio you generated here (generate_image / generate_video / generate_speech), downloads, and files the user attached or dropped into the chat, oldest first. Use it to find the paths before look_at_images, upload_files, add_workflow_content or reference_images. "the image", "these photos", "the video above" mean these.',
+      z.object({ kind: z.enum(['image', 'video', 'audio', 'document']).optional() }),
+      async (a) => {
+        const list = ctx.media().filter((m) => !a.kind || m.kind === a.kind)
+        return list.length ? JSON.stringify(list.map((m, i) => ({ n: i + 1, ...m }))) : 'No media in this chat yet. list_files shows the whole workspace.'
+      },
+    ),
+    def(
+      'look_at_images',
+      'See images with a vision model, several at once (compare them, check text on them, pick the best, describe them before writing a caption). paths empty = the images of this chat (newest 6).',
+      z.object({ paths: z.array(z.string()).max(6).optional(), question: z.string().describe('What to look for or decide.') }),
+      async (a) => {
+        const paths = a.paths?.length ? a.paths : ctx.media().filter((m) => m.kind === 'image').slice(-6).map((m) => m.path)
+        if (!paths.length) throw new Error('No images in this chat. Pass workspace paths.')
+        const images = await Promise.all(paths.map(dataUri))
+        return `Images in order: ${paths.map((p, i) => `${i + 1}=${p}`).join(', ')}
+
+${await ctx.vision(a.question, images)}`
+      },
+    ),
     def(
       'generate_image',
       'Generate images with an image model and save them to the workspace. Use aspect ratios of the target ad placement.',
@@ -1303,5 +1380,5 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     }),
   ]
 
-  return [...browserTools, ...chromeExtensionTools, ...pageTools, ...chromeTools, ...mediaTools, ...dataTools, ...workflowTools, ...fileTools]
+  return [...browserTools, ...chromeExtensionTools, ...pageTools, ...codeTools, ...chromeTools, ...mediaTools, ...dataTools, ...workflowTools, ...fileTools]
 }
