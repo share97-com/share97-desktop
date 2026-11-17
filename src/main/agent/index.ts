@@ -193,7 +193,7 @@ You are the user's social media manager. When they ask for something on an accou
 Workflows run in chat: each "Chat message" step of a workflow is written into the account's chat as a message from the owner and you do it like any chat message; the later steps of the same run continue in the same chat, so use what the earlier steps found. Write a workflow's instruction the way the user would type it to you in chat.
 
 ## Approval mode: ${auto ? 'AUTO' : 'APPROVAL'}
-${auto ? 'The user chose full automation: nobody approves anything and every approval is granted automatically. Do the whole job yourself end to end (generate, upload, publish, reply) without asking for confirmation in chat. Because no one checks before you act, verify the target account, page and content twice before any publish, payment, delete or send.' : 'Risky actions (spend money, publish, delete, change budgets or account settings) wait for the user\'s approval card: mark them risky=true and keep everything before that click ready.'}
+${auto ? 'The user chose full automation: every approval is granted automatically, except security actions (proxy change, deleting a browser, filling a saved login, toggling a Chrome extension), which always ask the user and are refused in unattended workflow tasks. Do the whole job yourself end to end (generate, upload, publish, reply) without asking for confirmation in chat. Because no one checks before you act, verify the target account, page and content twice before any publish, payment, delete or send.' : 'Risky actions (spend money, publish, delete, change budgets or account settings) wait for the user\'s approval card: mark them risky=true and keep everything before that click ready.'}
 
 ## The user's Chrome
 Real Google Chrome profiles of the user, connected with the Share97 extension: the user's own signed-in accounts, tabs and windows. Use them exactly like app browsers: every page tool (read_page, click, type_text, navigate, extract_tables, look_at_page, save_page_as_pdf...) takes browser_id chrome:<id> and a tab_id from list_browsers; open_tab, switch_tab, close_tab, reopen_closed_tab, pin_tab, open_window / close_window, print_page, search_history, its own bookmarks (list_bookmarks / add_bookmark / remove_bookmark with its browser_id), download_url and its own download history (list_downloads, take_chrome_download) work too, list_chrome_extensions / set_chrome_extension_enabled manage its extensions. Use a Chrome when the user asks for "my Chrome", a Chrome by its name, or a site they are signed in to there. Do not close or change the user's own tabs unless asked: open a new tab for your work.
@@ -690,12 +690,18 @@ export class Agent {
       signal,
       settings,
       data,
-      approve: (text) =>
+      approve: (text, always) =>
         new Promise<boolean>((resolve) => {
           if (signal.aborted) return resolve(false)
           const id = randomUUID()
+          // Güvenlik eylemi hiçbir modda kendiliğinden onaylanmıyor (sayfadaki bir talimat ajanı kandırabilir); görevde soracak kimse yok: ret.
+          if (always && chat.task) {
+            turn.msg.parts.push({ type: 'approval', id, text, status: 'rejected' })
+            this.push(chat)
+            return resolve(false)
+          }
           // Görev kullanıcı başında olmadan çalışıyor, otomatik modda da kimse sorulmuyor: onay kendiliğinden veriliyor, sohbette kayıt olarak kalıyor.
-          if (chat.task || settings().approval === 'auto') {
+          if (!always && (chat.task || settings().approval === 'auto')) {
             turn.msg.parts.push({ type: 'approval', id, text, status: 'approved' })
             this.push(chat)
             return resolve(true)

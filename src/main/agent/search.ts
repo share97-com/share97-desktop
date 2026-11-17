@@ -28,7 +28,8 @@ const SERP = `(() => {
       return /^\\/(url|goto|aclk)/.test(u.pathname) ? href : null
     } catch { return null }
   }
-  for (const h of document.querySelectorAll('#search a h3, #rso a h3, #main a h3')) {
+  // Masaüstünde başlık h3; mobil sonuç sayfasında role=heading (hesabın mobil görünümlü tarayıcısında arama).
+  for (const h of document.querySelectorAll('#search a h3, #rso a h3, #main a h3, #rso a [role=heading], #main a [role=heading]')) {
     const a = h.closest('a')
     const url = a && real(a.href)
     if (!url || seen.has(url)) continue

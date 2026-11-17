@@ -1,7 +1,7 @@
 import { ExternalLink, Loader2, LogIn, Monitor, Plus, RefreshCw, Search, Smartphone, Tag, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { Account, Layout, SocialAccount } from '../../shared/types.ts'
-import { PLATFORMS, PLATFORM_IDS, platformOf } from '../../shared/platforms.ts'
+import { PLATFORMS, PLATFORM_IDS, defaultLayout, platformOf } from '../../shared/platforms.ts'
 import { ConfirmButton } from './Confirm.tsx'
 import { api, errorText, useChrome, useConnections } from './hooks.ts'
 import { t } from './i18n.ts'
@@ -206,7 +206,9 @@ function AddAccount({ onClose }: { onClose: () => void }) {
   const [platform, setPlatform] = useState<string>(PLATFORM_IDS[0])
   const [handle, setHandle] = useState('')
   const [where, setWhere] = useState('app')
-  const [layout, setLayout] = useState<Layout>('mobile')
+  // Seçilmediyse platformun varsayılanı (YouTube Studio ve TikTok yüklemesi masaüstünde).
+  const [picked, setLayout] = useState<Layout | null>(null)
+  const layout = picked ?? defaultLayout(platform)
   const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState('')
 
@@ -234,7 +236,7 @@ function AddAccount({ onClose }: { onClose: () => void }) {
       <Field label={t.conn.platform}>
         <div className="grid grid-cols-3 gap-2">
           {PLATFORM_IDS.map((id) => (
-            <button key={id} type="button" disabled={waiting} aria-pressed={platform === id} className={`flex items-center gap-2 rounded-lg border px-2 py-2 text-sm ${platform === id ? 'border-brand bg-brand/10 font-medium' : 'border-line hover:bg-raised'}`} onClick={() => setPlatform(id)}>
+            <button key={id} type="button" disabled={waiting} aria-pressed={platform === id} className={`flex items-center gap-2 rounded-lg border px-2 py-2 text-sm ${platform === id ? 'border-brand bg-brand/10 font-medium' : 'border-line hover:bg-raised'}`} onClick={() => (setPlatform(id), setLayout(null))}>
               <PlatformBadge platform={id} size="size-6" /> {PLATFORMS[id].label}
             </button>
           ))}

@@ -4,15 +4,15 @@
  *
  * `cookie`: oturumun açıldığını gösteren çerez. Sayfadaki işi agent yapıyor.
  */
-export type Platform = { label: string; color: string; login: string; home: string; profile: string; cookie: { url: string; name: string }; needsMedia?: boolean }
+export type Platform = { label: string; color: string; login: string; home: string; profile: string; cookie: { url: string; name: string }; needsMedia?: boolean; desktop?: boolean }
 
 export const PLATFORMS = {
-  instagram: { label: 'Instagram', color: '#e1306c', login: 'https://www.instagram.com/accounts/login/', home: 'https://www.instagram.com/', profile: 'https://www.instagram.com/{}/', cookie: { url: 'https://www.instagram.com', name: 'sessionid' }, needsMedia: true },
+  instagram: { label: 'Instagram', color: '#e1306c', login: 'https://www.instagram.com/accounts/login/', home: 'https://www.instagram.com/', profile: 'https://www.instagram.com/{}/', cookie: { url: 'https://www.instagram.com', name: 'sessionid' }, needsMedia: true, desktop: true },
   tiktok: { label: 'TikTok', color: '#25f4ee', login: 'https://www.tiktok.com/login', home: 'https://www.tiktok.com/', profile: 'https://www.tiktok.com/@{}', cookie: { url: 'https://www.tiktok.com', name: 'sessionid' }, needsMedia: true },
   x: { label: 'X', color: '#9ca3af', login: 'https://x.com/i/flow/login', home: 'https://x.com/home', profile: 'https://x.com/{}', cookie: { url: 'https://x.com', name: 'auth_token' } },
   linkedin: { label: 'LinkedIn', color: '#0a66c2', login: 'https://www.linkedin.com/login', home: 'https://www.linkedin.com/feed/', profile: 'https://www.linkedin.com/in/{}/', cookie: { url: 'https://www.linkedin.com', name: 'li_at' } },
   facebook: { label: 'Facebook', color: '#1877f2', login: 'https://www.facebook.com/login', home: 'https://www.facebook.com/', profile: 'https://www.facebook.com/{}', cookie: { url: 'https://www.facebook.com', name: 'c_user' } },
-  youtube: { label: 'YouTube', color: '#ff0000', login: 'https://accounts.google.com/ServiceLogin?service=youtube&continue=https://studio.youtube.com/', home: 'https://studio.youtube.com/', profile: 'https://www.youtube.com/@{}', cookie: { url: 'https://www.youtube.com', name: 'SAPISID' }, needsMedia: true },
+  youtube: { label: 'YouTube', color: '#ff0000', login: 'https://accounts.google.com/ServiceLogin?service=youtube&continue=https://studio.youtube.com/', home: 'https://studio.youtube.com/', profile: 'https://www.youtube.com/@{}', cookie: { url: 'https://www.youtube.com', name: 'SAPISID' }, needsMedia: true, desktop: true },
   pinterest: { label: 'Pinterest', color: '#e60023', login: 'https://www.pinterest.com/login/', home: 'https://www.pinterest.com/', profile: 'https://www.pinterest.com/{}/', cookie: { url: 'https://www.pinterest.com', name: '_auth' }, needsMedia: true },
   threads: { label: 'Threads', color: '#a3a3a3', login: 'https://www.threads.com/login', home: 'https://www.threads.com/', profile: 'https://www.threads.com/@{}', cookie: { url: 'https://www.threads.com', name: 'sessionid' } },
   reddit: { label: 'Reddit', color: '#ff4500', login: 'https://www.reddit.com/login/', home: 'https://www.reddit.com/', profile: 'https://www.reddit.com/user/{}/', cookie: { url: 'https://www.reddit.com', name: 'reddit_session' } },
@@ -22,6 +22,9 @@ export type PlatformId = keyof typeof PLATFORMS
 export const PLATFORM_IDS = Object.keys(PLATFORMS) as PlatformId[]
 export const isPlatform = (v: unknown): v is PlatformId => typeof v === 'string' && Object.hasOwn(PLATFORMS, v)
 export const platformOf = (id: string): Platform | null => (isPlatform(id) ? PLATFORMS[id] : null)
+
+/** Hesap tarayıcısının varsayılan görünümü: yükleme ekranı yalnız masaüstü sitesinde olan platformlar (`desktop`) dışında mobil. */
+export const defaultLayout = (id: string) => (platformOf(id)?.desktop ? 'desktop' : 'mobile')
 
 /** Kullanıcı adı: baştaki @ ve boşluklar adın parçası değil. */
 export const cleanHandle = (raw: string) => raw.trim().replace(/^@+/, '').slice(0, 80)

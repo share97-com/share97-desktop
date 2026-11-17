@@ -41,8 +41,11 @@ export type Ctx = {
   chrome: ChromeBridge
   signal: AbortSignal
   settings: () => Settings
-  /** Kullanıcıya onay kartı; reddedilirse ya da iş durdurulursa `false`. */
-  approve(text: string): Promise<boolean>
+  /**
+   * Kullanıcıya onay kartı; reddedilirse ya da iş durdurulursa `false`. `always`: güvenlik eylemi (proxy, tarayıcı
+   * silme, kayıtlı giriş, eklenti), otomatik modda da soruluyor ve başında kimse olmayan görevde reddediliyor.
+   */
+  approve(text: string, always?: boolean): Promise<boolean>
   /** Üretilen dosya sohbette kart olarak. */
   file(fullPath: string): void
   /** Agent bir uygulama sekmesinde çalışıyor: sohbette canlı önizlemesi. */
@@ -435,7 +438,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
         const x = b.get(a.browser_id)
         if (!x) throw new Error('Browser not found.')
         // Trafiği başka sunucudan geçirmek: sayfadaki bir talimatla değişmesin diye her zaman onaylı.
-        if (a.proxy !== undefined && !(await ctx.approve(`"${x.name}" tarayıcısının proxy ayarı değişecek: ${a.proxy || 'doğrudan bağlantı'}`))) return 'The user rejected the proxy change.'
+        if (a.proxy !== undefined && !(await ctx.approve(`"${x.name}" tarayıcısının proxy ayarı değişecek: ${a.proxy || 'doğrudan bağlantı'}`, true))) return 'The user rejected the proxy change.'
         return JSON.stringify(b.configure(a.browser_id, { language: a.language, proxy: a.proxy, userAgent: a.user_agent, homeUrl: a.home_url, layout: a.view, width: a.width }))
       },
     ),
@@ -460,7 +463,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
       if (chromeOf(a.browser_id)) throw new Error(APP_ONLY)
       const x = b.get(a.browser_id)
       if (!x) throw new Error('Browser not found.')
-      if (!(await ctx.approve(`"${x.name}" tarayıcısı, sekmeleri ve oturumları silinecek.`))) return 'The user rejected this action.'
+      if (!(await ctx.approve(`"${x.name}" tarayıcısı, sekmeleri ve oturumları silinecek.`, true))) return 'The user rejected this action.'
       await b.remove(a.browser_id)
       return 'Deleted.'
     }),
@@ -534,7 +537,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
         const c = usableChrome(cb, cid)
         const ext = (await cb.call<{ id: string; name: string }[]>(cid, 'extensions.list')).find((x) => x.id === a.extension_id)
         if (!ext) throw new Error('Extension not found. Call list_chrome_extensions.')
-        if (!(await ctx.approve(`"${c.name}" Chrome'unda "${ext.name}" eklentisi ${a.enabled ? 'açılacak' : 'kapatılacak'}.`))) return 'The user rejected this action.'
+        if (!(await ctx.approve(`"${c.name}" Chrome'unda "${ext.name}" eklentisi ${a.enabled ? 'açılacak' : 'kapatılacak'}.`, true))) return 'The user rejected this action.'
         await cb.call(cid, 'extensions.setEnabled', { id: a.extension_id, enabled: a.enabled })
         return a.enabled ? 'Enabled.' : 'Disabled.'
       },
@@ -653,6 +656,11 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
    * çalışma klasörüne (`scripts/<site>/<ad>.js`) kaydediyor ve aynı sitede bir dahaki sefere yeniden kullanıyor.
    */
   const SCRIPT_MS = 60_000
+  /**
+   * Sayfayı değiştiren, istek atan ya da oturum verisine dokunan kod: model `risky` demese de onaya gidiyor. Yoksa
+   * betik, tıklamadaki onay denetimini (`RISKY`) atlatıp "Yayınla / Sil" düğmesine kendisi basabilirdi.
+   */
+  const ACTS = /\.click\s*\(|\.submit\s*\(|\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|dispatchEvent|\.value\s*=|\.checked\s*=|execCommand|location\s*(\.\s*(href|assign|replace)|=)|document\s*\.\s*cookie|localStorage|sessionStorage|indexedDB/
   const hostOf = (url: string) => {
     try {
       return new URL(url).hostname.replace(/^www\./, '')
@@ -664,13 +672,13 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
   const codeTools = [
     def(
       'run_script',
-      "Run your own JavaScript in a tab's page (main frame) and get its result: for bulk or repetitive page work that would take many clicks (collect every comment/row/product on the page, scroll a list and gather items, read data from the DOM, fill many fields, check what a site's structure is). Write it for THIS site's structure (look at read_page first). The code is the body of an async function: use await, `args` holds your args, return a JSON-serializable value (keep it small). It runs with the page's own rights, like a click. Set risky=true when it changes something (posts, deletes, follows, submits). Pass script instead of code to run one saved with save_script.",
+      "Run your own JavaScript in a tab's page (main frame) and get its result: for bulk or repetitive page work that would take many clicks (collect every comment/row/product on the page, scroll a list and gather items, read data from the DOM, fill many fields, check what a site's structure is). Write it for THIS site's structure (look at read_page first). The code is the body of an async function: use await, `args` holds your args, return a JSON-serializable value (keep it small). It runs with the page's own rights, like a click. Code that only reads the DOM runs directly; code that clicks, submits, sends requests, sets field values or touches cookies/storage needs the user's approval in Approval mode (set risky=true for it). Pass script instead of code to run one saved with save_script.",
       z.object({ ...target, code: z.string().max(20_000).optional(), script: z.string().optional().describe('Saved script path from list_scripts, e.g. scripts/instagram.com/collect-comments.js'), args: z.record(z.string(), z.unknown()).optional(), risky: z.boolean().optional() }),
       (a) =>
         onTab(a, async (d) => {
           const code = a.script ? (await readFile(await ws.existing(a.script), 'utf8')).replace(/^\/\/.*\n/, '') : a.code
           if (!code?.trim()) throw new Error('Give code or script.')
-          if (a.risky && !(await ctx.approve(`Sayfada kod çalıştırılacak (${(await d.info()).url}): ${(a.script ?? code).slice(0, 300)}`))) return 'The user rejected this script.'
+          if ((a.risky || ACTS.test(code)) && !(await ctx.approve(`Sayfada kod çalıştırılacak (${(await d.info()).url}): ${(a.script ?? code).slice(0, 300)}`))) return 'The user rejected this script.'
           const wrapped = `(async () => { try { const out = await (async (args) => {\n${code}\n})(${JSON.stringify(a.args ?? {})}); return JSON.stringify(out === undefined ? null : out) } catch (e) { return 'Error: ' + (e && e.stack || e) } })()`
           const out = await Promise.race([d.evaluate<string>(wrapped), new Promise<string>((_, reject) => setTimeout(() => reject(new Error(`The script ran longer than ${SCRIPT_MS / 1000} s.`)), SCRIPT_MS))])
           await page.settle(d, 200)
@@ -880,7 +888,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
         const origin = passwords.originOf(wc.getURL())
         const saved = await passwords.list(a.browser_id, origin)
         if (!saved.length) return `No saved login for ${origin} in this browser. Ask the user to sign in or save a login with the key button in the address bar.`
-        if (!(await ctx.approve(`${origin} için kayıtlı giriş (${saved[0].username}) doldurulacak.`))) return 'The user rejected filling the login.'
+        if (!(await ctx.approve(`${origin} için kayıtlı giriş (${saved[0].username}) doldurulacak.`, true))) return 'The user rejected filling the login.'
         return `Filled login for ${await passwords.fill(wc, a.browser_id)}.`
       },
     ),
@@ -1120,9 +1128,13 @@ ${await ctx.vision(a.question, images)}`
     }
     const id = browserId ?? b.all().find((x) => x.name === SEARCH_BROWSER && !x.incognito)?.id
     if (!id) {
-      const created = b.create(SEARCH_BROWSER, url, false)
+      // Arama tarayıcısı masaüstü görünümde: sonuç sayfası ayrıştırıcısı ve okunan kaynak sayfaları ona göre.
+      const created = b.create(SEARCH_BROWSER, 'about:blank', false)
+      b.configure(created.id, { layout: 'desktop' })
+      void b.contents(created.id)?.loadURL(url).catch(() => {})
       return { browser_id: created.id, tab_id: created.activeTabId! }
     }
+    if (!browserId && b.get(id)?.settings.layout !== 'desktop') b.configure(id, { layout: 'desktop' })
     const t = b.openTab(id, url, focus)
     if (!t) throw new Error('Browser not found. Call list_browsers.')
     return { browser_id: id, tab_id: t.id }
