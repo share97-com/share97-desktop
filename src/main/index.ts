@@ -263,7 +263,8 @@ function registerIpc() {
     if (force !== true && Date.now() - accounts.lastSync() < 5000) return
     await Promise.all([accounts.syncAccounts(), auth.refresh()])
   })
-  handle('connections:add', (platform, h, chromeId) => accounts.addAccount(str(platform, 40), str(h, 200), optStr(chromeId)))
+  handle('connections:add', (platform, h, chromeId, layout) => accounts.addAccount(str(platform, 40), str(h, 200), optStr(chromeId), layout === 'desktop' ? 'desktop' : 'mobile'))
+  handle('connections:setLayout', (id, layout) => accounts.setLayout(str(id, 200), layout === 'desktop' ? 'desktop' : 'mobile'))
   handle('connections:cancelAdd', () => accounts.cancelAdd())
   handle('connections:relogin', (id) => accounts.relogin(str(id, 200)))
   handle('connections:remove', (id) => accounts.removeAccount(str(id, 200)))
@@ -353,6 +354,7 @@ function registerIpc() {
     b().setBounds({ x, y, width, height })
   })
 
+  handle('browsers:setLayout', (id, tab, layout, width) => void b().setLayout(str(id), str(tab), layout, width === null ? null : Number(width)))
   handle('browsers:previewSlot', (tab, raw) => {
     if (raw === null) return b().setSlot(str(tab), null)
     const { x, y, width, height } = (raw ?? {}) as Bounds

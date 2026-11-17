@@ -21,7 +21,8 @@ const api: Api = {
   connections: {
     state: () => call('connections:state'),
     refresh: (force) => call('connections:refresh', force),
-    add: (platform, handle, chromeId) => call('connections:add', platform, handle, chromeId),
+    add: (platform, handle, chromeId, layout) => call('connections:add', platform, handle, chromeId, layout),
+    setLayout: (id, layout) => call('connections:setLayout', id, layout),
     cancelAdd: () => call('connections:cancelAdd'),
     relogin: (id) => call('connections:relogin', id),
     remove: (id) => call('connections:remove', id),
@@ -73,6 +74,7 @@ const api: Api = {
     stop: () => call('browsers:stop'),
     setBounds: (b) => call('browsers:setBounds', b),
     previewSlot: (tab, b) => call('browsers:previewSlot', tab, b),
+    setLayout: (id, tab, layout, width) => call('browsers:setLayout', id, tab, layout, width),
     find: (text, forward) => call('browsers:find', text, forward),
     stopFind: () => call('browsers:stopFind'),
     zoom: (f) => call('browsers:zoom', f),

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import type { ConnectionsState, Overview, SocialAccount } from '../shared/types.ts'
+import type { ConnectionsState, Layout, Overview, SocialAccount } from '../shared/types.ts'
 import { PLATFORMS, cleanHandle, isPlatform, platformOf, type PlatformId } from '../shared/platforms.ts'
 import { server, ServerError } from './auth.ts'
 import type { Browsers } from './browsers.ts'
@@ -54,7 +54,7 @@ export function connectionsState(): ConnectionsState {
   for (const w of overview?.workers ?? []) for (const a of w.accounts) workerOf.set(a.id, w.name)
   const accounts: SocialAccount[] = remote.map((a) => {
     const l = locals.find((x) => x.id === a.id)
-    return { id: a.id, platform: a.platform, handle: a.handle, name: a.name, status: a.status, via: a.via, here: Boolean(l), where: l ? (l.chromeId ? 'chrome' : 'app') : null, browserId: l ? agentBrowser(l) : null, group: a.group ?? '', worker: workerOf.get(a.id) ?? null }
+    return { id: a.id, platform: a.platform, handle: a.handle, name: a.name, status: a.status, via: a.via, here: Boolean(l), where: l ? (l.chromeId ? 'chrome' : 'app') : null, layout: (l?.browserId && browsers.get(l.browserId)?.settings.layout) || null, browserId: l ? agentBrowser(l) : null, group: a.group ?? '', worker: workerOf.get(a.id) ?? null }
   })
   return { accounts, overview, error, syncedAt }
 }
@@ -147,7 +147,7 @@ function waitForLogin(browserId: string, platform: PlatformId) {
  * giriş yapar (parola uygulamaya da agent'a da görünmez); oturum çerezi görülünce hesap sunucuya
  * yazılır. Chrome'da: kullanıcı o Chrome'da zaten girişli; platform yeni sekmede açılır ve hesap yazılır.
  */
-export async function addAccount(platformRaw: string, handleRaw: string, chromeId?: string): Promise<{ ok: boolean; error?: string }> {
+export async function addAccount(platformRaw: string, handleRaw: string, chromeId?: string, layout: Layout = 'mobile'): Promise<{ ok: boolean; error?: string }> {
   const handle = cleanHandle(handleRaw)
   if (!isPlatform(platformRaw) || !handle) return { ok: false, error: 'bad-argument' }
   const platform = platformRaw
@@ -168,6 +168,8 @@ export async function addAccount(platformRaw: string, handleRaw: string, chromeI
     } else {
       const b = browsers.create(`${p.label} · @${handle}`, p.login, true)
       browsers.update(b.id, { note: `Share97 account: @${handle} on ${p.label}.`, color: p.color })
+      // Giriş ekranı da seçilen görünümde açılsın (varsayılan mobil).
+      browsers.configure(b.id, { layout })
       if (!(await waitForLogin(b.id, platform))) {
         if (browsers.get(b.id)) await browsers.remove(b.id)
         return { ok: false, error: 'login-cancelled' }
@@ -242,6 +244,14 @@ export async function openAccount(id: string) {
   if (!l) return
   if (l.chromeId) await chrome.call(l.chromeId, 'tabs.create', { url: PLATFORMS[l.platform].home }, 45_000)
   else if (l.browserId) browsers.activate(l.browserId)
+}
+
+/** Hesabın uygulama tarayıcısının görünümü: varsayılanı ve açık sekmeleri (bkz. `Browsers.configure`). */
+export async function setLayout(id: string, layout: Layout) {
+  const l = saved().locals.find((x) => x.id === id)
+  if (!l?.browserId || !browsers.get(l.browserId)) throw new Error('This account has no app browser on this device.')
+  browsers.configure(l.browserId, { layout, width: null })
+  changed()
 }
 
 export async function setGroup(id: string, group: string) {

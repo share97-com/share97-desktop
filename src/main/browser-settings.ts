@@ -1,8 +1,31 @@
-import type { BrowserSettings } from '../shared/types.ts'
+import type { BrowserSettings, Layout } from '../shared/types.ts'
 import { isWebUrl, toUrl } from './address.ts'
 
-/** Tarayıcı başına ayarların ilk hali: sistem dili, doğrudan bağlantı, varsayılan user agent. */
-export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = { language: null, proxy: null, userAgent: null, homeUrl: null }
+/** Tarayıcı başına ayarların ilk hali: sistem dili, doğrudan bağlantı, varsayılan user agent, mobil görünüm. */
+export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = { language: null, proxy: null, userAgent: null, homeUrl: null, layout: 'mobile', width: null }
+
+/** Mobil görünümün varsayılan genişliği (CSS px, yaygın telefon); elle verilen genişliğin sınırları. */
+export const MOBILE_WIDTH = 390
+export const MIN_WIDTH = 320
+export const MAX_WIDTH = 2560
+
+export const isLayout = (v: unknown): v is Layout => v === 'mobile' || v === 'desktop'
+
+/** Genişlik girdisi: sayı sınırlara çekiliyor, `null`/boş "görünümün varsayılanı"; geçersizse `undefined` (değişmez). */
+export function cleanWidth(v: unknown): number | null | undefined {
+  if (v === null || v === '') return null
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN
+  return Number.isFinite(n) ? Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, n))) : undefined
+}
+
+/** Sekmenin ekrandaki sayfa genişliği: mobilde telefon genişliği, masaüstünde alanın tamamı; alandan geniş olamaz. */
+export const pageWidth = (layout: Layout, width: number | null, area: number) => Math.max(1, Math.min(area, width ?? (layout === 'mobile' ? MOBILE_WIDTH : area)))
+
+/** Masaüstü Chrome user agent'ından aynı sürümün Android Chrome'u: siteler mobil sayfayı veriyor. */
+export function mobileUserAgent(desktop: string) {
+  const major = /Chrome\/(\d+)/.exec(desktop)?.[1] ?? '140'
+  return `Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Mobile Safari/537.36`
+}
 
 /** `socks5://host:port`, `socks4://…`, `http(s)://[kullanıcı:şifre@]host:port`. Chromium SOCKS'ta kullanıcı/şifre desteklemiyor. */
 const PROXY = /^(socks5|socks4|http|https):\/\/(?:([^:@/\s]+):([^@/\s]*)@)?([a-z0-9.-]+|\[[0-9a-f:]+\]):(\d{1,5})\/?$/i
@@ -36,6 +59,12 @@ export function normalize(current: BrowserSettings, patch: Partial<Record<keyof 
   }
   const ua = text(patch.userAgent)
   if (ua !== undefined) next.userAgent = ua ? ua.slice(0, 500) : null
+  if (patch.layout !== undefined) {
+    if (!isLayout(patch.layout)) throw new Error('Layout must be mobile or desktop.')
+    next.layout = patch.layout
+  }
+  const width = cleanWidth(patch.width)
+  if (width !== undefined) next.width = width
   const home = text(patch.homeUrl)
   if (home !== undefined) {
     const url = home ? toUrl(home) : ''

@@ -1,6 +1,19 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { acceptLanguages, chromeUserAgent, DEFAULT_BROWSER_SETTINGS, normalize, parseProxy } from './browser-settings.ts'
+import { acceptLanguages, chromeUserAgent, cleanWidth, DEFAULT_BROWSER_SETTINGS, mobileUserAgent, normalize, pageWidth, parseProxy } from './browser-settings.ts'
+
+test('görünüm: varsayılan mobil, genişlik sınırlı, sayfa alana sığıyor', () => {
+  assert.equal(DEFAULT_BROWSER_SETTINGS.layout, 'mobile')
+  const s = normalize(DEFAULT_BROWSER_SETTINGS, { layout: 'desktop', width: '1024' })
+  assert.deepEqual([s.layout, s.width], ['desktop', 1024])
+  assert.equal(normalize(s, { width: '' }).width, null)
+  assert.throws(() => normalize(s, { layout: 'tablet' }), /mobile or desktop/)
+  assert.deepEqual([cleanWidth(10), cleanWidth(99_999), cleanWidth('x')], [320, 2560, undefined])
+  assert.equal(pageWidth('mobile', null, 1600), 390)
+  assert.equal(pageWidth('desktop', null, 1600), 1600)
+  assert.equal(pageWidth('desktop', 1024, 800), 800, 'alandan geniş olamaz')
+  assert.equal(mobileUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.7339.80 Safari/537.36'), 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Mobile Safari/537.36')
+})
 
 test('proxy biçimi', () => {
   assert.deepEqual(parseProxy('socks5://127.0.0.1:1080'), { rules: 'socks5://127.0.0.1:1080' })

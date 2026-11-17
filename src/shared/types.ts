@@ -37,6 +37,8 @@ export type SocialAccount = {
   via: 'api' | 'worker'
   here: boolean
   where: 'app' | 'chrome' | null
+  /** Hesabın uygulama tarayıcısının görünümü (mobil / masaüstü); Chrome'daki ya da bu cihazda olmayan hesapta `null`. */
+  layout: Layout | null
   /** Agent'ın bu hesabı kullandığı tarayıcı (`chrome:<id>` ya da uygulama tarayıcısı). */
   browserId: string | null
   group: string
@@ -97,6 +99,9 @@ export type BrowserTab = {
   muted: boolean
   /** Yakınlaştırma (1 = %100). */
   zoom: number
+  /** Sekmenin görünümü ve sayfa genişliği; elle ya da agent değiştirebiliyor (bkz. `BrowserSettings.layout`). */
+  layout: Layout
+  width: number | null
 }
 
 /** Tarayıcı başına ayarlar; `null` varsayılan (sistem dili, doğrudan bağlantı, Chrome user agent). */
@@ -108,7 +113,14 @@ export type BrowserSettings = {
   userAgent: string | null
   /** Yeni sekmede açılan sayfa. */
   homeUrl: string | null
+  /** Yeni sekmelerin görünümü: mobil (dar sayfa + telefon user agent'ı) ya da masaüstü. Varsayılan mobil. */
+  layout: Layout
+  /** Sayfa genişliği (CSS px); `null`: mobilde telefon genişliği, masaüstünde alanın tamamı. */
+  width: number | null
 }
+
+/** Sekmenin görünümü (bkz. `BrowserSettings.layout`). */
+export type Layout = 'mobile' | 'desktop'
 
 /** Tarayıcı renkleri (şerit, kart, sekme çizgisi); kullanıcı panelden seçiyor. */
 export const BROWSER_COLORS = ['#7c5cff', '#22d3ee', '#f59e0b', '#10b981', '#ef4444', '#ec4899', '#3b82f6', '#84cc16', '#6b7280']
@@ -332,7 +344,9 @@ export type Api = {
     /** Sunucudan yeniden okur (hesaplar, akışlar, cihazlar); `force` olmadan son 5 saniyede okunduysa atlar. */
     refresh(force?: boolean): Promise<void>
     /** `chromeId` verilmezse hesaba özel bir uygulama tarayıcısı açılır ve giriş beklenir. */
-    add(platform: string, handle: string, chromeId?: string): Promise<{ ok: boolean; error?: string }>
+    add(platform: string, handle: string, chromeId?: string, layout?: Layout): Promise<{ ok: boolean; error?: string }>
+    /** Hesabın tarayıcısını mobil ya da masaüstü görünüme alır (açık sekmeleri dahil). */
+    setLayout(id: string, layout: Layout): Promise<void>
     cancelAdd(): Promise<void>
     relogin(id: string): Promise<{ ok: boolean; error?: string }>
     remove(id: string): Promise<void>
@@ -400,6 +414,8 @@ export type Api = {
     setBounds(b: Bounds): Promise<void>
     /** Sohbetteki canlı önizleme yuvası (agent'ın sekmesi orada çiziliyor); dönüş sayfanın yükseklik/genişlik oranı. */
     previewSlot(tabId: string, b: Bounds | null): Promise<number>
+    /** Etkin sekmenin görünümü (mobil / masaüstü) ve sayfa genişliği (`null`: görünümün varsayılanı). */
+    setLayout(browserId: string, tabId: string, layout: Layout, width: number | null): Promise<void>
     find(text: string, forward: boolean): Promise<void>
     stopFind(): Promise<void>
     zoom(factor: number | null): Promise<void>

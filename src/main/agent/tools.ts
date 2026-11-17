@@ -377,7 +377,8 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
               note: x.note,
               open: x.open,
               settings: x.settings,
-              tabs: x.open ? x.tabs.map((t) => ({ tab_id: t.id, title: t.title, url: t.url, active: t.id === x.activeTabId })) : x.saved.map((t) => ({ url: t.url })),
+              view: { default: x.settings.layout, width: x.settings.width },
+              tabs: x.open ? x.tabs.map((t) => ({ tab_id: t.id, title: t.title, url: t.url, active: t.id === x.activeTabId, view: t.layout, width: t.width })) : x.saved.map((t) => ({ url: t.url })),
             })),
             ...cb
               .instances()
@@ -427,15 +428,28 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     }),
     def(
       'configure_browser',
-      "Set a browser's language (Accept-Language, e.g. tr-TR), proxy (socks5://host:port or http://user:pass@host:port; changing it asks the user), user agent or new-tab page. Empty string resets a field.",
-      z.object({ browser_id: z.string(), language: z.string().optional(), proxy: z.string().optional(), user_agent: z.string().optional(), home_url: z.string().optional() }),
+      "Set a browser's language (Accept-Language, e.g. tr-TR), proxy (socks5://host:port or http://user:pass@host:port; changing it asks the user), user agent (desktop view), new-tab page, or its default view (mobile/desktop and page width, applied to its open tabs too). Empty string resets a field. To switch only one tab use set_view.",
+      z.object({ browser_id: z.string(), language: z.string().optional(), proxy: z.string().optional(), user_agent: z.string().optional(), home_url: z.string().optional(), view: z.enum(['mobile', 'desktop']).optional(), width: z.number().int().min(320).max(2560).nullable().optional() }),
       async (a) => {
         if (chromeOf(a.browser_id)) throw new Error(APP_ONLY)
         const x = b.get(a.browser_id)
         if (!x) throw new Error('Browser not found.')
         // Trafiği başka sunucudan geçirmek: sayfadaki bir talimatla değişmesin diye her zaman onaylı.
         if (a.proxy !== undefined && !(await ctx.approve(`"${x.name}" tarayıcısının proxy ayarı değişecek: ${a.proxy || 'doğrudan bağlantı'}`))) return 'The user rejected the proxy change.'
-        return JSON.stringify(b.configure(a.browser_id, { language: a.language, proxy: a.proxy, userAgent: a.user_agent, homeUrl: a.home_url }))
+        return JSON.stringify(b.configure(a.browser_id, { language: a.language, proxy: a.proxy, userAgent: a.user_agent, homeUrl: a.home_url, layout: a.view, width: a.width }))
+      },
+    ),
+    def(
+      'set_view',
+      "Switch an app browser tab between the mobile view (phone-width page with a phone user agent: sites serve their mobile page) and the desktop view, or change the page width in CSS px (320-2560; e.g. 390 phone, 768 tablet, 1280 laptop; null = the view's default). App browsers open in the mobile view by default. When a button, menu or field you need is not on the page (read_page query and look_at_page found nothing), switch the view or width and look again: sites show different controls on mobile and desktop. Changing the view reloads the page.",
+      z.object({ ...target, view: z.enum(['mobile', 'desktop']).optional(), width: z.number().int().min(320).max(2560).nullable().optional() }),
+      async (a) => {
+        if (chromeOf(a.browser_id)) throw new Error(`${APP_ONLY} In a Chrome the window width decides the layout.`)
+        b.open(a.browser_id)
+        const out = b.setLayout(a.browser_id, a.tab_id, a.view, a.width)
+        const wc = b.contents(a.browser_id, a.tab_id)
+        if (wc) await page.settle(page.electronDriver(wc), 800)
+        return `View is now ${out.layout}, page width ${out.page_width}px${out.width ? ` (set to ${out.width}px)` : ''}. Call read_page again: refs and controls changed.`
       },
     ),
     def('test_browser_connection', "Check an app browser's connection (and proxy): returns its public IP address.", z.object({ browser_id: z.string() }), async (a) => {

@@ -1,6 +1,6 @@
-import { ExternalLink, Loader2, LogIn, Plus, RefreshCw, Search, Tag, Trash2 } from 'lucide-react'
+import { ExternalLink, Loader2, LogIn, Monitor, Plus, RefreshCw, Search, Smartphone, Tag, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { Account, SocialAccount } from '../../shared/types.ts'
+import type { Account, Layout, SocialAccount } from '../../shared/types.ts'
 import { PLATFORMS, PLATFORM_IDS, platformOf } from '../../shared/platforms.ts'
 import { ConfirmButton } from './Confirm.tsx'
 import { api, errorText, useChrome, useConnections } from './hooks.ts'
@@ -160,6 +160,7 @@ function AccountCard({ account: a, groups }: { account: SocialAccount; groups: s
         )}
         {!editing && (
           <div className="ml-auto flex items-center gap-1">
+            {a.layout && <LayoutSwitch value={a.layout} disabled={busy} onChange={(l) => act(api().connections.setLayout(a.id, l))} />}
             {a.here && a.status !== 'connected' && (
               <button className={button} disabled={busy} onClick={() => act(api().connections.relogin(a.id))}>
                 <LogIn className="size-3.5" /> {t.conn.relogin}
@@ -182,6 +183,22 @@ function AccountCard({ account: a, groups }: { account: SocialAccount; groups: s
   )
 }
 
+/** Mobil / masaüstü seçici: hesap eklerken ve hesap kartında aynı. */
+function LayoutSwitch({ value, onChange, disabled }: { value: Layout; onChange: (l: Layout) => void; disabled?: boolean }) {
+  return (
+    <div role="group" aria-label={t.layout} title={t.layoutHint} className="flex shrink-0 overflow-hidden rounded-full border border-line text-xs">
+      {(['mobile', 'desktop'] as const).map((l) => {
+        const Icon = l === 'mobile' ? Smartphone : Monitor
+        return (
+          <button key={l} type="button" disabled={disabled} aria-pressed={value === l} className={`flex items-center gap-1 px-2 py-1 ${value === l ? 'bg-brand/15 font-medium text-fg' : 'text-muted hover:bg-raised hover:text-fg'}`} onClick={() => value !== l && onChange(l)}>
+            <Icon className="size-3.5" /> {t.layouts[l]}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /** Hesap ekleme: platform, kullanıcı adı ve oturumun yeri (uygulama tarayıcısı ya da bağlı bir Chrome). */
 function AddAccount({ onClose }: { onClose: () => void }) {
   const chrome = useChrome()
@@ -189,6 +206,7 @@ function AddAccount({ onClose }: { onClose: () => void }) {
   const [platform, setPlatform] = useState<string>(PLATFORM_IDS[0])
   const [handle, setHandle] = useState('')
   const [where, setWhere] = useState('app')
+  const [layout, setLayout] = useState<Layout>('mobile')
   const [waiting, setWaiting] = useState(false)
   const [error, setError] = useState('')
 
@@ -196,7 +214,7 @@ function AddAccount({ onClose }: { onClose: () => void }) {
     setError('')
     setWaiting(true)
     void api()
-      .connections.add(platform, handle, where === 'app' ? undefined : where)
+      .connections.add(platform, handle, where === 'app' ? undefined : where, layout)
       .then((r) => {
         if (r.ok) {
           toast(t.conn.added)
@@ -236,6 +254,11 @@ function AddAccount({ onClose }: { onClose: () => void }) {
         </select>
       </Field>
       {!chromes.length && <p className="-mt-2 mb-4 text-xs text-muted">{t.conn.noChrome}</p>}
+      {where === 'app' && (
+        <Field label={t.layout} hint={t.layoutHint}>
+          <LayoutSwitch value={layout} onChange={setLayout} disabled={waiting} />
+        </Field>
+      )}
       {waiting && where === 'app' && (
         <p className="mb-4 flex items-center gap-2 rounded-lg border border-line bg-raised p-3 text-sm">
           <Loader2 className="size-4 shrink-0 animate-spin text-brand" /> {t.conn.waiting}

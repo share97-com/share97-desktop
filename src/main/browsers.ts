@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { app, clipboard, dialog, Menu, session, WebContentsView, type BrowserWindow, type Input, type MenuItemConstructorOptions, type Session, type WebContents } from 'electron'
 import { BROWSER_COLORS, type Bounds, type BrowserInfo, BrowserSettings, BrowsersState, type BrowserTab, type FindResult, type Shortcut, type Thumbnails } from '../shared/types.ts'
-import { acceptLanguages, chromeUserAgent, DEFAULT_BROWSER_SETTINGS, normalize, parseProxy } from './browser-settings.ts'
+import { acceptLanguages, chromeUserAgent, cleanWidth, DEFAULT_BROWSER_SETTINGS, isLayout, mobileUserAgent, normalize, pageWidth, parseProxy } from './browser-settings.ts'
 import { isWebUrl, toUrl } from './address.ts'
 import { track } from './downloads.ts'
 import * as extensions from './extensions.ts'
@@ -20,7 +20,7 @@ import { dataPath, debouncedWriter, readJson, writeJson } from './store.ts'
  */
 
 /** `used`: son görüldüğü / kullanıldığı an. `asleep`: sayfası kapatılmış sekmenin gezinme geçmişi (bkz. `sleepIdle`). */
-type Tab = BrowserTab & { view: WebContentsView; lastRecorded: string; pip: number; used: number; asleep: { entries: Electron.NavigationEntry[]; index: number } | null }
+type Tab = BrowserTab & { view: WebContentsView; lastRecorded: string; /** Canlı penceredeyse genişliği (+ sayfa genişliği küçük kesirde: değişince ölçek yenileniyor); değilse 0. */ pip: number; used: number; asleep: { entries: Electron.NavigationEntry[]; index: number } | null; ua: string }
 type SavedTab = { id: string; url: string }
 type Browser = Omit<BrowserInfo, 'tabs' | 'savedTabs' | 'lastUrl'> & { tabs: Tab[]; saved: SavedTab[]; savedActive: string | null; session: Session | null; proxyAuth: { username: string; password: string } | null }
 type Saved = { browsers: { id: string; name: string; note: string; color: string; settings?: BrowserSettings; tabs: SavedTab[]; activeTabId: string | null }[] }
@@ -131,7 +131,7 @@ export class Browsers {
         lastUrl: (b.open ? b.tabs.find((t) => t.id === b.activeTabId)?.url : (b.saved.find((t) => t.id === b.savedActive) ?? b.saved[0])?.url) ?? null,
         settings: b.settings,
         activeTabId: b.activeTabId,
-        tabs: b.tabs.map(({ view: _v, lastRecorded: _l, pip: _p, used: _u, asleep: _a, ...t }) => t),
+        tabs: b.tabs.map(({ view: _v, lastRecorded: _l, pip: _p, used: _u, asleep: _a, ua: _ua, ...t }) => t),
       })),
     }
   }
@@ -180,8 +180,45 @@ export class Browsers {
     if (!b) throw new Error('Browser not found.')
     b.settings = normalize(b.settings, patch)
     this.applySettings(b)
+    // Görünüm tarayıcının bütün açık sekmelerine de geçiyor (hesap ekranından "mobil / masaüstü").
+    if (patch.layout !== undefined || patch.width !== undefined) for (const t of b.tabs) this.setLayout(b.id, t.id, b.settings.layout, b.settings.width)
     this.changed()
     return b.settings
+  }
+
+  /**
+   * **Sekmenin görünümü**: mobil (telefon genişliğinde sayfa + Android Chrome user agent'ı, siteler mobil sayfayı
+   * veriyor) ya da masaüstü, isteğe bağlı genişlikle (CSS px). User agent değiştiyse sayfa yeniden yükleniyor; yalnız
+   * genişlik değiştiyse sayfa yerinde yeniden yerleşiyor. `width` verilmezse görünümün varsayılanı.
+   */
+  setLayout(browserId: string, tabId: string | undefined, layout: unknown, width?: unknown) {
+    const b = this.get(browserId)
+    const t = this.tab(browserId, tabId)
+    if (!b || !t) throw new Error('Browser or tab not found.')
+    if (layout !== undefined && !isLayout(layout)) throw new Error('Layout must be mobile or desktop.')
+    if (isLayout(layout)) t.layout = layout
+    const w = cleanWidth(width ?? null)
+    if (w !== undefined) t.width = w
+    if (this.applyUa(b, t)) t.view.webContents.reload()
+    this.show()
+    this.changed()
+    return { layout: t.layout, width: t.width, page_width: this.pageWidthOf(t) }
+  }
+
+  /** Sekmenin user agent'ı görünümüne göre; değiştiyse `true` (sayfa yeniden yüklenmeli). Yüklemeden önce çağrılıyor. */
+  private applyUa(b: Browser, t: Tab) {
+    const desktop = b.settings.userAgent ?? chromeUserAgent(app.userAgentFallback)
+    const ua = t.layout === 'mobile' ? mobileUserAgent(chromeUserAgent(app.userAgentFallback)) : desktop
+    if (ua === t.ua) return false
+    t.ua = ua
+    const wc = t.view.webContents
+    if (!wc.isDestroyed()) wc.setUserAgent(ua)
+    return true
+  }
+
+  /** Sekmenin sayfa genişliği (CSS px) son görünür alana göre. */
+  private pageWidthOf(t: Tab) {
+    return pageWidth(t.layout, t.width, this.size.width)
   }
 
   /** Oturuma uygular: user agent + Accept-Language, yazım denetimi dili, proxy (bağlantılar yenileniyor). Oturum yoksa oluşunca uygulanıyor. */
@@ -190,6 +227,7 @@ export class Browsers {
     if (!ses) return
     const s = b.settings
     ses.setUserAgent(s.userAgent ?? chromeUserAgent(app.userAgentFallback), s.language ? acceptLanguages(s.language) : undefined)
+    for (const t of b.tabs) if (!t.asleep && this.applyUa(b, t)) t.view.webContents.reload()
     if (s.language) {
       const spell = ses.availableSpellCheckerLanguages.find((l) => l === s.language || l === s.language!.split('-')[0])
       if (spell) ses.setSpellCheckerLanguages([spell])
@@ -315,8 +353,9 @@ export class Browsers {
   }
 
   private addTab(b: Browser, url: string, id: string = randomUUID()): Tab {
-    const tab: Tab = { id, url, title: url, favicon: null, loading: true, canGoBack: false, canGoForward: false, agent: false, audible: false, muted: false, zoom: 1, view: this.newView(b), lastRecorded: '', pip: 0, used: Date.now(), asleep: null }
+    const tab: Tab = { id, url, title: url, favicon: null, loading: true, canGoBack: false, canGoForward: false, agent: false, audible: false, muted: false, zoom: 1, layout: b.settings.layout, width: b.settings.width, view: this.newView(b), lastRecorded: '', pip: 0, used: Date.now(), asleep: null, ua: '' }
     b.tabs.push(tab)
+    this.applyUa(b, tab)
     this.wireTab(b, tab)
     void tab.view.webContents.loadURL(url).catch(() => {})
     return tab
@@ -357,6 +396,8 @@ export class Browsers {
     t.asleep = null
     t.used = Date.now()
     t.view = this.newView(b)
+    t.ua = ''
+    this.applyUa(b, t)
     this.wireTab(b, t)
     const wc = t.view.webContents
     wc.setAudioMuted(t.muted)
@@ -623,7 +664,8 @@ export class Browsers {
     if (b && b.width > 0 && b.height > 0) this.slots.set(tabId, { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) })
     else this.slots.delete(tabId)
     this.show()
-    return this.size.height / this.size.width
+    const t = this.list.flatMap((x) => x.tabs).find((x) => x.id === tabId)
+    return this.size.height / (t ? this.pageWidthOf(t) : this.size.width)
   }
 
   /** Sekmenin ekrandaki gerçek genişliği (DIP): fare koordinatı = CSS px * (bu / sayfanın innerWidth'i). */
@@ -635,11 +677,18 @@ export class Browsers {
   private emulate(t: Tab) {
     const wc = t.view.webContents
     if (wc.isDestroyed() || !t.pip) return
-    const scale = t.pip / this.size.width
-    wc.enableDeviceEmulation({ screenPosition: 'desktop', screenSize: { width: this.size.width, height: this.size.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width: this.size.width, height: this.size.height }, scale })
+    const width = this.pageWidthOf(t)
+    const scale = Math.floor(t.pip) / width
+    wc.enableDeviceEmulation({ screenPosition: t.layout === 'mobile' ? 'mobile' : 'desktop', screenSize: { width, height: this.size.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width, height: this.size.height }, scale })
   }
 
   /* ---------------- görünüm ---------------- */
+
+  /** Görünür sekmenin yeri: masaüstünde alanın tamamı, dar sayfa (mobil ya da elle genişlik) alanın ortasında. */
+  private fit(t: Tab): Bounds {
+    const width = pageWidth(t.layout, t.width, this.bounds.width)
+    return { ...this.bounds, x: this.bounds.x + Math.round((this.bounds.width - width) / 2), width }
+  }
 
   setBounds(b: Bounds) {
     this.bounds = { x: Math.round(b.x), y: Math.round(b.y), width: Math.max(0, Math.round(b.width)), height: Math.max(0, Math.round(b.height)) }
@@ -675,20 +724,23 @@ export class Browsers {
             if (!wc.isDestroyed()) wc.disableDeviceEmulation()
           }
           t.view.setVisible(t === visible)
-          t.view.setBounds(t === visible ? this.bounds : this.size)
+          t.view.setBounds(t === visible ? this.fit(t) : { ...this.size, width: this.pageWidthOf(t) })
           continue
         }
+        const page = this.pageWidthOf(t)
         let box: Bounds
-        if (inChat) box = { ...inChat, height: Math.round((inChat.width * this.size.height) / this.size.width) }
+        if (inChat) box = { ...inChat, height: Math.round((inChat.width * this.size.height) / page) }
         else {
-          const height = Math.round((this.size.height * PIP_WIDTH) / this.size.width)
+          const height = Math.round((this.size.height * PIP_WIDTH) / page)
           const area = this.bounds.width ? this.bounds : this.size
           box = { x: area.x + area.width - PIP_WIDTH - 16, y: area.y + area.height - (height + 12) * ++slot, width: PIP_WIDTH, height }
         }
         t.view.setVisible(true)
         t.view.setBounds(box)
-        const changed = t.pip !== box.width
-        t.pip = box.width
+        // Ölçek sayfa genişliğine bağlı: görünüm (mobil/masaüstü) değişince de yeniden uygulanıyor.
+        const key = box.width + page / 1e5
+        const changed = t.pip !== key
+        t.pip = key
         if (changed) this.emulate(t)
         // PiP en üstte: kullanıcının açık sekmesinin de üstünde.
         this.win.contentView.addChildView(t.view)

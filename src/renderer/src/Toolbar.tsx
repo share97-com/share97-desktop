@@ -1,6 +1,6 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Download, EyeOff, Globe, History, KeyRound, Languages, RotateCw, Star, X } from 'lucide-react'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Download, EyeOff, Globe, History, KeyRound, Languages, Monitor, RotateCw, Smartphone, Star, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import type { BrowserInfo, FindResult, SavedLogin } from '../../shared/types.ts'
+import type { BrowserInfo, BrowserTab, FindResult, Layout, SavedLogin } from '../../shared/types.ts'
 import { Overlay } from './Bars.tsx'
 import { api, useBookmarks, useDownloads } from './hooks.ts'
 import { t } from './i18n.ts'
@@ -12,6 +12,43 @@ const IconButton = ({ label, onClick, disabled, active, children }: { label: str
 )
 
 type Suggestion = { title: string; url: string; bookmark: boolean }
+
+/** Sekme görünümünün hazır genişlikleri; elle verilen başka genişlik "özel" olarak görünüyor. */
+const VIEWS: Record<string, { layout: Layout; width: number | null }> = {
+  mobile: { layout: 'mobile', width: null },
+  mobileL: { layout: 'mobile', width: 430 },
+  tablet: { layout: 'mobile', width: 768 },
+  laptop: { layout: 'desktop', width: 1280 },
+  desktop: { layout: 'desktop', width: null },
+}
+const viewOf = (tab: BrowserTab) => Object.keys(VIEWS).find((k) => VIEWS[k].layout === tab.layout && VIEWS[k].width === tab.width) ?? 'custom'
+
+/** Sekmenin görünümü: mobil (dar sayfa, telefon user agent'ı) ya da masaüstü, hazır genişliklerle. */
+function LayoutPicker({ browserId, tab }: { browserId: string; tab: BrowserTab }) {
+  const current = viewOf(tab)
+  const Icon = tab.layout === 'mobile' ? Smartphone : Monitor
+  return (
+    <label className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-muted hover:bg-raised hover:text-fg" title={t.layoutHint}>
+      <Icon className="size-4" />
+      <select
+        value={current}
+        aria-label={t.layout}
+        className="max-w-28 bg-transparent text-xs outline-none"
+        onChange={(e) => {
+          const v = VIEWS[e.target.value]
+          if (v) void api().browsers.setLayout(browserId, tab.id, v.layout, v.width)
+        }}
+      >
+        {Object.keys(VIEWS).map((k) => (
+          <option key={k} value={k}>
+            {t.layouts[k as keyof typeof t.layouts]}
+          </option>
+        ))}
+        {current === 'custom' && <option value="custom">{`${tab.layout === 'mobile' ? t.layouts.mobile : t.layouts.desktop} · ${tab.width}px`}</option>}
+      </select>
+    </label>
+  )
+}
 
 /**
  * Chrome'un adres satırı: gezinme düğmeleri, geçmiş + yer imi önerileri, yakınlaştırma göstergesi,
@@ -116,6 +153,7 @@ export function Toolbar({ browser, addressRef, downloadsOpen, setDownloadsOpen, 
           </Overlay>
         )}
       </form>
+      {tab && <LayoutPicker browserId={browser.id} tab={tab} />}
       {url && !browser.incognito && (
         <div className="relative">
           <IconButton label={t.passwords} active={keys} onClick={() => setKeys(!keys)}>
