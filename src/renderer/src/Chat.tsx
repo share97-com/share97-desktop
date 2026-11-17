@@ -245,7 +245,8 @@ function Message({ m, live, tab, onRetry }: { m: ChatMessage; live: boolean; tab
  */
 function LivePreview({ tab }: { tab: NonNullable<ChatT['live']> }) {
   const box = useRef<HTMLDivElement>(null)
-  const [ratio, setRatio] = useState(0.625)
+  const [ratio, setRatio] = useState(2)
+  const [folded, setFolded] = useState(false)
   useEffect(() => {
     const el = box.current
     if (!el) return
@@ -284,6 +285,9 @@ function LivePreview({ tab }: { tab: NonNullable<ChatT['live']> }) {
   return (
     <div className="sticky bottom-2 z-10 overflow-hidden rounded-lg border border-line bg-panel shadow-[var(--shadow-card)]">
       <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-muted">
+        <button type="button" className="shrink-0 rounded-md p-0.5 hover:bg-raised hover:text-fg" aria-expanded={!folded} aria-label={t.livePreview} onClick={() => setFolded(!folded)}>
+          {folded ? <ChevronRight className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+        </button>
         <MonitorPlay className="size-3.5 shrink-0 animate-pulse text-brand" />
         <span className="shrink-0 font-medium text-fg">{t.livePreview}</span>
         <span className="min-w-0 flex-1 truncate">{tab.title}</span>
@@ -291,7 +295,9 @@ function LivePreview({ tab }: { tab: NonNullable<ChatT['live']> }) {
           <ExternalLink className="size-3.5" /> {t.openTab}
         </button>
       </div>
-      <div ref={box} className="w-full bg-bg" style={{ aspectRatio: `${1 / ratio}` }} />
+      {/* Yükseklik sınırlı, genişlik sayfanın oranından: mobil sayfa telefon biçiminde, sohbeti taşırmıyor. Kapalıyken küçük
+          resim: sekme ekranda kalmalı, yoksa Chromium ona tıklama iletmiyor. */}
+      <div ref={box} className="mx-auto max-w-full bg-bg" style={{ height: folded ? 96 : 'min(45vh, 440px)', aspectRatio: `${1 / ratio}` }} />
     </div>
   )
 }

@@ -731,9 +731,11 @@ export class Browsers {
         let box: Bounds
         if (inChat) box = { ...inChat, height: Math.round((inChat.width * this.size.height) / page) }
         else {
-          const height = Math.round((this.size.height * PIP_WIDTH) / page)
           const area = this.bounds.width ? this.bounds : this.size
-          box = { x: area.x + area.width - PIP_WIDTH - 16, y: area.y + area.height - (height + 12) * ++slot, width: PIP_WIDTH, height }
+          // Dar (mobil) sayfa uzun: pencere alanın yarısını aşmasın diye genişlik kısılıyor.
+          const width = Math.round(Math.min(PIP_WIDTH, (area.height * 0.5 * page) / this.size.height))
+          const height = Math.round((this.size.height * width) / page)
+          box = { x: area.x + area.width - width - 16, y: area.y + area.height - (height + 12) * ++slot, width, height }
         }
         t.view.setVisible(true)
         t.view.setBounds(box)
