@@ -59,6 +59,10 @@ export type Ctx = {
   media(): { path: string; name: string; kind: FileKind; from: 'agent' | 'user' }[]
   /** Sohbetin kalıcı verisi: aramalar, sayfalar, raporların yapısı (memory.ts). */
   data: ChatData
+  /** Bu tarayıcı şu an başka bir işin elinde mi (akış görevi ya da başka bir alt agent): tek sekmede iki iş birbirini bozmasın. */
+  taken?(browserId: string): boolean
+  /** Bütün araçlar (MCP listesi): duruma göre daraltma yapılmaz. */
+  all?: boolean
   /** Başıboş görev tek bir tarayıcıya kilitli (hesabın bağlantıda tanımlı tarayıcısı): başka tarayıcı kullanılamaz, yenisi açılamaz. */
   only?: string
 }
@@ -170,6 +174,8 @@ export function makeTools(ctx: Ctx) {
     plainDef(name, description, schema, (args) => {
       const problem = lockProblem(ctx.only, name, args)
       if (problem) throw new Error(problem)
+      const id = (args as { browser_id?: unknown } | null)?.browser_id
+      if (typeof id === 'string' && ctx.taken?.(id)) throw new Error(`Browser ${id} is in use by another task or subagent right now (one tab per browser). Use a different browser, or wait and try again later.`)
       return fn(args)
     })
   const b = ctx.browsers
@@ -1417,5 +1423,7 @@ ${await ctx.vision(a.question, images)}`
     }),
   ]
 
-  return [...browserTools, ...chromeExtensionTools, ...pageTools, ...codeTools, ...chromeTools, ...mediaTools, ...dataTools, ...workflowTools, ...fileTools]
+  // Kullanılamayacak araçlar modele gönderilmiyor: bağlı Chrome yoksa eklenti araçları, hesaba kilitli akış görevinde akış yönetimi.
+  const chromeOn = ctx.all || cb.instances().length > 0
+  return [...browserTools, ...(chromeOn ? chromeExtensionTools : []), ...pageTools, ...codeTools, ...chromeTools, ...mediaTools, ...dataTools, ...(ctx.only ? [] : workflowTools), ...fileTools]
 }

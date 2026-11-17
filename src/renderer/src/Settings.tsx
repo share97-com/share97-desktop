@@ -218,8 +218,20 @@ function McpCard({ s, update }: { s: SettingsT; update: (patch: Partial<Settings
       <Row label={t.mcp.enable} hint={s.mcp ? (status.error ? `${t.mcp.failed}: ${status.error}` : status.running ? url : '') : t.mcp.off}>
         <Switch on={s.mcp} label={t.mcp.enable} onChange={(on) => update({ mcp: on })} />
       </Row>
-      <Row label={t.mcp.port}>
-        <input type="number" min={1024} max={65535} defaultValue={s.mcpPort} className="w-24 rounded-md border border-line bg-bg px-2 py-1 text-sm" onBlur={(e) => update({ mcpPort: Number(e.target.value) })} />
+      <Row label={t.mcp.port} hint="1024-65535">
+        <input
+          type="number"
+          min={1024}
+          max={65535}
+          defaultValue={s.mcpPort}
+          className="w-24 rounded-md border border-line bg-bg px-2 py-1 text-sm"
+          onBlur={(e) => {
+            const n = Number(e.target.value)
+            // Geçersiz port yazılmış gibi kalmasın: kayıtlı değere döner.
+            if (Number.isInteger(n) && n >= 1024 && n <= 65535) update({ mcpPort: n })
+            else e.target.value = String(s.mcpPort)
+          }}
+        />
       </Row>
       {s.mcp && (
         <>

@@ -65,6 +65,7 @@ const MIN_RECORD = 120
 const SUBAGENT = 'subagent'
 /** Model çağrısı bütçesi; dolunca agent hata vermeden son cevabını yazıyor (guard.ts). */
 const MAX_TASK_CHATS = 300
+const PERSIST_MS = 5_000
 const MAIN_STEPS = 150
 const SUB_STEPS = 80
 /** Bütçe asıl sınır; LangGraph sınırı yalnız ara düğümler (middleware) için geniş pay. */
@@ -263,6 +264,8 @@ export class Agent {
   private results = new Map<string, TaskResult>()
   /** Görev sohbeti → kullanabileceği tek tarayıcı (`Ctx.only`). */
   private locks = new Map<string, string>()
+  /** Sohbet → (uygulama tarayıcısı → onu kullanan alt agent). */
+  private subOwners = new Map<string, Map<string, string>>()
 
   constructor(
     private browsers: Browsers,
@@ -448,12 +451,13 @@ export class Agent {
 
   /** Dış agent'ın araç çağrılarının sohbeti: çağrılar ve onay kartları orada görünüyor. */
   private mcpRecord(): Record {
-    let r = this.records.get(this.mcpChatId)
+    let r = this.records.get(this.mcpChatId) ?? [...this.records.values()].find((x) => x.chat.mcp)
     if (!r) {
-      this.mcpChatId = this.create()
-      r = this.records.get(this.mcpChatId)!
+      r = this.records.get(this.create())!
       r.chat.title = 'MCP'
+      r.chat.mcp = true
     }
+    this.mcpChatId = r.chat.id
     return r
   }
 
@@ -461,7 +465,7 @@ export class Agent {
   mcpTools(): McpTool[] {
     if (this.mcpList) return this.mcpList
     const r = this.mcpRecord()
-    const ctx = this.context({ chat: r.chat, msg: { id: '', role: 'assistant', parts: [] } }, new AbortController().signal, DEFAULT_MODEL, this.data(r.chat.id))
+    const ctx = { ...this.context({ chat: r.chat, msg: { id: '', role: 'assistant', parts: [] } }, new AbortController().signal, DEFAULT_MODEL, this.data(r.chat.id)), all: true }
     return (this.mcpList = [
       ...makeTools(ctx).map((t) => ({ name: t.name, description: t.description, inputSchema: z.toJSONSchema(t.schema as z.ZodType, { unrepresentable: 'any' }) })),
       {
@@ -509,7 +513,7 @@ export class Agent {
     try {
       const data = this.data(chat.id)
       data.embeddings = embeddings()
-      const t = makeTools(this.context(turn, signal, await defaultModel(), data)).find((x) => x.name === name)
+      const t = makeTools({ ...this.context(turn, signal, await defaultModel(), data), all: true }).find((x) => x.name === name)
       if (!t) throw new Error(`Unknown tool: ${name}`)
       out = String(await (t as unknown as { invoke(a: unknown): Promise<unknown> }).invoke(args ?? {}))
       return out
@@ -582,6 +586,7 @@ export class Agent {
     // Hata ya da durdurmada o ana kadarki adımlar (araç sonuçları dahil) korunsun: her model adımından önceki durum.
     let snapshot: BaseMessage[] = [...history, new HumanMessage(withNote(text, ctx?.note))]
     let final: BaseMessage[] | null = null
+    let saved = Date.now()
     const watch = this.watchdog(turn, controller.signal)
 
     try {
@@ -640,6 +645,12 @@ export class Agent {
         },
         toolEnd: (id, name, args, output, ms) => {
           record(data, name, args, output)
+          // Uzun işin ortasında uygulama kapanırsa tur kaybolmasın: en çok PERSIST_MS'de bir, o ana kadarki adımlarla diske.
+          if (Date.now() - saved > PERSIST_MS) {
+            saved = Date.now()
+            r.lc = mapChatMessagesToStoredMessages(snapshot)
+            this.persist(r)
+          }
           const p = turn.chat.messages.flatMap((m) => m.parts).find((x): x is ToolPart => x.type === 'tool' && x.id === id)
           if (!p) return
           p.status = output.startsWith('Error:') ? 'error' : 'done'
@@ -824,6 +835,8 @@ export class Agent {
         chat.costUsd += usd
         this.push(chat)
       },
+      // ponytail: yalnız akış görevinin kilitlediği tarayıcı korunuyor; iki elle sohbet aynı tarayıcıda çakışırsa kullanıcı görüyor.
+      taken: (id) => [...this.locks].some(([c, b]) => b === id && c !== chat.id),
       media: () => chatMedia(chat),
       vision: async (question, dataUrl) => {
         // Ayarlardaki vision modeli; boşsa sohbet modeli görsel okuyabiliyorsa o, yoksa varsayılan.
@@ -846,12 +859,26 @@ export class Agent {
         const part: Extract<Part, { type: 'subagent' }> = { type: 'subagent', id: randomUUID(), task, status: 'running', activity: '', steps: 0 }
         turn.msg.parts.push(part)
         this.push(chat)
+        // Tek sekme: uygulama tarayıcısını ilk kullanan alt agent bitene kadar sahipleniyor; öbürü başka tarayıcı kullanıyor.
+        const owners = this.subOwners.get(chat.id) ?? new Map<string, string>()
+        this.subOwners.set(chat.id, owners)
+        const sub: Ctx = {
+          ...ctx,
+          taken: (id) => {
+            if (ctx.taken?.(id)) return true
+            if (id.startsWith(CHROME_PREFIX)) return false
+            const owner = owners.get(id)
+            if (owner && owner !== part.id) return true
+            owners.set(id, part.id)
+            return false
+          },
+        }
         try {
           const id = settings().subagentModel ?? mainModel
           const agent = createAgent({
             name: SUBAGENT,
             model: await chatModel(id),
-            tools: makeTools(ctx),
+            tools: makeTools(sub),
             // Ana agent'la aynı bağlam yönetimi: veri dizini, sıkıştırma, takılma bekçisi, yedek model.
             middleware: [
               contextMiddleware(() => dataNote(ctx.data)),
@@ -888,6 +915,7 @@ export class Agent {
           if (ctx.signal.aborted) throw e
           return `Subagent failed: ${part.summary}`
         } finally {
+          for (const [b, o] of owners) if (o === part.id) owners.delete(b)
           part.activity = ''
           this.push(chat)
         }

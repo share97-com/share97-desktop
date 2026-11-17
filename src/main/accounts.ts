@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { ConnectionsState, Layout, Overview, SocialAccount } from '../shared/types.ts'
-import { PLATFORMS, cleanHandle, isPlatform, platformOf, type PlatformId } from '../shared/platforms.ts'
+import { PLATFORMS, cleanHandle, defaultLayout, isPlatform, platformOf, type PlatformId } from '../shared/platforms.ts'
 import { server, ServerError } from './auth.ts'
 import type { Browsers } from './browsers.ts'
 import type { ChromeBridge } from './chrome/bridge.ts'
@@ -20,13 +20,17 @@ import { dataPath, readJson, writeJson } from './store.ts'
 /** Bu cihazda oturumu olan hesap. `browserId`: uygulama tarayıcısı; `chromeId`: Chrome profili. */
 type Local = { id: string; remoteId: string; platform: PlatformId; handle: string; browserId?: string; chromeId?: string }
 type Remote = { id: string; platform: string; handle: string; name: string | null; status: SocialAccount['status']; via: 'api' | 'worker'; group: string }
-type Saved = { locals: Local[] }
+type Saved = { locals: Local[]; desktopDefaults?: boolean }
 
 const LOGIN_WAIT_MS = 10 * 60_000
 const file = () => dataPath('accounts.json')
 
 let store: Saved | null = null
-const saved = (): Saved => (store ??= { locals: readJson<Partial<Saved>>(file(), {}).locals ?? [] })
+const saved = (): Saved => {
+  if (store) return store
+  const raw = readJson<Partial<Saved>>(file(), {})
+  return (store = { locals: raw.locals ?? [], desktopDefaults: raw.desktopDefaults })
+}
 const persist = () => writeJson(file(), saved())
 
 let browsers: Browsers
@@ -43,6 +47,12 @@ export function initAccounts(b: Browsers, c: ChromeBridge, onChange: (s: Connect
   browsers = b
   chrome = c
   emit = onChange
+  // 1.2.0 bütün hesap tarayıcılarını mobile çevirmişti: yükleme ekranı masaüstünde olan platformlar (YouTube, TikTok) bir kez masaüstüne alınıyor.
+  if (!saved().desktopDefaults) {
+    for (const l of saved().locals) if (l.browserId && defaultLayout(l.platform) === 'desktop' && browsers.get(l.browserId)) browsers.configure(l.browserId, { layout: 'desktop', width: null })
+    saved().desktopDefaults = true
+    persist()
+  }
 }
 
 /** Agent'ın hesabı kullanacağı tarayıcı kimliği (`chrome:<id>` ya da uygulama tarayıcısı). */

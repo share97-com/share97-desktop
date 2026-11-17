@@ -203,11 +203,13 @@ async function execute(r: Run, node: GraphNode, items: Item[]): Promise<Out> {
       return { status: 'ok' }
 
     case 'agent': {
-      // Yapay zekâ agent'ı: talimatı hesabın tarayıcısında yapar. İçerik geldiyse ilk öğenin metni ve dosyaları göreve eklenir.
+      // Yapay zekâ agent'ı: talimatı hesabın tarayıcısında yapar. İçerik geldiyse metni ve dosyaları göreve eklenir.
       const prompt = str(d.prompt).trim()
       if (!prompt) throw new Error('agent: the instruction is empty: write what the agent should do')
-      const item = items[0] ?? null
-      return { status: 'ok', detail: await work(r, str(d.accountId), item, { instruction: interpolate(prompt, envOf(item, tz)) }) }
+      // Her içerik için bir mesaj (yayın düğümü gibi); içerik yoksa tek mesaj.
+      const details: string[] = []
+      for (const item of items.length ? items : [null]) details.push(await work(r, str(d.accountId), item, { instruction: interpolate(prompt, envOf(item, tz)) }))
+      return { status: 'ok', detail: details.join(', ') }
     }
 
     case 'queue': {

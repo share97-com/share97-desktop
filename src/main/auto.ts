@@ -1,6 +1,6 @@
 import { jobPrompt, platformOf } from '../shared/platforms.ts'
 import { planRound, postInstruction, type AutoJob, type AutoRound } from '../shared/auto.ts'
-import { agentBrowser, localAccounts, sessionProblem } from './accounts.ts'
+import { agentBrowser, closeAfterJob, localAccounts, openForJob, sessionProblem } from './accounts.ts'
 import type { Agent } from './agent/index.ts'
 import { server, ServerError } from './auth.ts'
 import { apiJson } from './gateway.ts'
@@ -78,7 +78,9 @@ export async function autoStep(agent: Agent, run: <T>(fn: () => Promise<T>) => P
     if (problem) throw new Error(problem.error)
     const { caption, files } = await generate(job, Boolean(platformOf(account.platform)?.needsMedia))
     const label = platformOf(account.platform)?.label ?? account.platform
-    const result = await run(() => agent.task(`Auto post · @${account.handle} (${label})`, jobPrompt({ platform: account.platform, handle: account.handle, browserId: agentBrowser(account)!, post: { type: 'feed', caption }, files }), null, agentBrowser(account)!))
+    let opened: string | null = null
+    const result = await run(() => ((opened = openForJob(account)), agent.task(`Auto post · @${account.handle} (${label})`, jobPrompt({ platform: account.platform, handle: account.handle, browserId: agentBrowser(account)!, post: { type: 'feed', caption }, files }), null, agentBrowser(account)!)))
+    if (opened && result.ok) closeAfterJob(opened)
     if (!result.ok) return { text: `${where}: ${result.summary}`, ok: false, chatId: result.chatId }
     await server('/api/v1/worker/auto-content', { method: 'PUT', body: { accountId: account.id, caption, permalink: result.permalink?.slice(0, 500) } }).catch(() => {})
     return { text: `${where}: published`, ok: true, chatId: result.chatId }

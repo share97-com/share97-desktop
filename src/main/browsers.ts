@@ -285,9 +285,11 @@ export class Browsers {
     const b = this.get(id)
     if (!b || b.open) return b
     b.open = true
-    for (const t of b.saved) this.addTab(b, isWebUrl(t.url) ? t.url : 'about:blank', t.id)
+    // Yalnız etkin sekmenin sayfası yükleniyor; öbürleri uyuyan sekme olarak geliyor (tıklanınca yükleniyor).
+    const active = b.saved.some((t) => t.id === b.savedActive) ? b.savedActive : b.saved[0]?.id
+    for (const t of b.saved) this.addTab(b, isWebUrl(t.url) ? t.url : 'about:blank', t.id, t.id !== active)
     if (!b.tabs.length) this.addTab(b, toUrl(b.settings.homeUrl ?? HOME_URL))
-    b.activeTabId = b.tabs.some((t) => t.id === b.savedActive) ? b.savedActive : b.tabs[0].id
+    b.activeTabId = active ?? b.tabs[0].id
     b.saved = []
     b.savedActive = null
     this.changed()
@@ -352,9 +354,15 @@ export class Browsers {
     return view
   }
 
-  private addTab(b: Browser, url: string, id: string = randomUUID()): Tab {
+  private addTab(b: Browser, url: string, id: string = randomUUID(), asleep = false): Tab {
     const tab: Tab = { id, url, title: url, favicon: null, loading: true, canGoBack: false, canGoForward: false, agent: false, audible: false, muted: false, zoom: 1, layout: b.settings.layout, width: b.settings.width, view: this.newView(b), lastRecorded: '', pip: 0, used: Date.now(), asleep: null, ua: '' }
     b.tabs.push(tab)
+    if (asleep) {
+      tab.loading = false
+      tab.view.webContents.close()
+      tab.asleep = { entries: [], index: 0 }
+      return tab
+    }
     this.applyUa(b, tab)
     this.wireTab(b, tab)
     void tab.view.webContents.loadURL(url).catch(() => {})

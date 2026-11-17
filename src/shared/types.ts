@@ -301,6 +301,8 @@ export type Chat = {
   dataCount: number
   /** Başıboş görev (sunucudan gelen akış işi): onaylar kendiliğinden veriliyor. */
   task?: boolean
+  /** Dış agent'ların (MCP) araç çağrılarının sohbeti: tek tane, yeniden kullanılıyor. */
+  mcp?: boolean
   /** Agent'ın bu turda çalıştığı uygulama sekmesi: sohbette düşünme alanının altında canlı önizlemesi. */
   live?: { browserId: string; tabId: string; title: string } | null
 }
