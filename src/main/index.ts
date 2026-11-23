@@ -26,7 +26,7 @@ import { Browsers, shortcutOf } from './browsers.ts'
 import { L } from './strings.ts'
 import * as history from './history.ts'
 import { onSettingsChange, settings, update as updateSettings } from './settings.ts'
-import { mcpStatus, syncMcp } from './mcp.ts'
+import { mcpStatus, syncMcp, type McpIo } from './mcp.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
 import { checkForUpdates, installUpdate, onUpdate, startUpdater } from './updater.ts'
 import * as ws from './workspace.ts'
@@ -151,7 +151,7 @@ function createWindow() {
     send('app:openChat', chatId)
   })
   ws.onFilesChange(() => send('files:changed'))
-  const mcpHost = { tools: () => agent!.mcpTools(), call: (name: string, args: unknown, signal: AbortSignal) => agent!.mcpCall(name, args, signal) }
+  const mcpHost = { version: app.getVersion(), tools: () => agent!.mcpTools(), call: (name: string, args: unknown, signal: AbortSignal, io: McpIo) => agent!.mcpCall(name, args, signal, io) }
   let mcpKey = ''
   const mcp = (s = settings()) => {
     const key = `${s.mcp}:${s.mcpPort}:${s.mcpToken}`

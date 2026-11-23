@@ -278,7 +278,7 @@ export type Part =
    */
   | { type: 'tool'; id: string; name: string; args: string; status: 'writing' | 'running' | 'done' | 'error'; result?: string; ms?: number; startedAt?: number; writeMs?: number; chars?: number; slow?: boolean }
   /** Bekçinin ya da bağlantının uyarısı (model yanıt vermiyor, MCP bağlanamadı...). */
-  | { type: 'notice'; level: 'warn' | 'error'; text: string }
+  | { type: 'notice'; level: 'info' | 'warn' | 'error'; text: string }
   | { type: 'todos'; items: Todo[] }
   | { type: 'subagent'; id: string; task: string; status: 'running' | 'done' | 'error'; activity: string; steps: number; summary?: string }
   | { type: 'approval'; id: string; text: string; status: 'pending' | 'approved' | 'rejected' }
@@ -478,7 +478,7 @@ export type Api = {
     set(patch: Partial<Settings>): Promise<Settings>
     onChange(cb: (s: Settings) => void): () => void
     /** MCP sunucusu dinliyor mu; dinleyemiyorsa nedeni (port dolu gibi). */
-    mcpStatus(): Promise<{ running: boolean; error?: string }>
+    mcpStatus(): Promise<McpStatus>
     /** MCP araç dökümanını (`http://127.0.0.1:<port>/`) varsayılan tarayıcıda açar. */
     mcpDocs(): Promise<void>
   }
@@ -579,3 +579,15 @@ export type Api = {
     onChange(cb: () => void): () => void
   }
 }
+
+/**
+ * Sohbet modeli olarak **MCP**: sohbete yazılan mesajı uygulamanın kendi (api14) modeli değil, MCP ile bağlı dış agent
+ * (Claude Code, Codex...) alır (`chat_wait`), işi uygulamanın araçlarıyla yapar ve cevabı sohbete yazar (`chat_reply`).
+ */
+export const MCP_MODEL = 'mcp'
+
+/** MCP sunucusunun durumu; `client`: son bağlanan dış agent (adı `initialize`dan) ve son isteğinin zamanı. */
+export type McpStatus = { running: boolean; error?: string; client?: { name: string; at: number } }
+
+/** Dış agent'a verilen "sohbete hizmet et" istemi: MCP ekranında, MCP `prompts` listesinde ve bekleme notunda aynı metin. */
+export const SERVE_PROMPT = 'Serve the Share97 Desktop chat: call chat_wait in a loop. For each message do what it asks with the share97 tools, then answer with chat_reply. Keep going until I stop you.'

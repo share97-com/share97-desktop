@@ -45,3 +45,15 @@ export function cropImage(full: string, by: { ratio?: string; box?: Box }) {
   const jpg = /^\.jpe?g$/i.test(extname(full))
   return { data: jpg ? out.toJPEG(92) : out.toPNG(), ext: jpg ? 'jpg' : 'png', ...box }
 }
+
+/**
+ * Dış agent'a (MCP) giden görsel: uzun kenarı `max` pikseli aşıyorsa küçültülüp JPEG yapılır (istemcinin sonuç sınırına
+ * sığsın, model zaten daha büyüğünü küçültüyor). Okunamayan biçim olduğu gibi kalır.
+ */
+export function shrinkImage(dataUrl: string, max = 1568): string {
+  const img = nativeImage.createFromDataURL(dataUrl)
+  const { width, height } = img.getSize()
+  if (!width || Math.max(width, height) <= max) return dataUrl
+  const k = max / Math.max(width, height)
+  return `data:image/jpeg;base64,${img.resize({ width: Math.round(width * k), height: Math.round(height * k), quality: 'good' }).toJPEG(80).toString('base64')}`
+}

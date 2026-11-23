@@ -169,7 +169,7 @@ function ModelsSection() {
   return (
     <Card>
       <Row label={t.chatModel}>
-        <ModelPicker value={s.chatModel} onChange={(id) => update({ chatModel: id })} />
+        <ModelPicker mcp={s.mcp} value={s.chatModel} onChange={(id) => update({ chatModel: id })} />
       </Row>
       <Row label={t.visionModel}>
         <ModelPicker visionOnly toolsOnly={false} value={s.visionModel} onChange={(id) => update({ visionModel: id })} placeholder={t.sameAsChatVision} />

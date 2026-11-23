@@ -6,7 +6,7 @@ import { tool } from '@langchain/core/tools'
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai'
 import { createAgent, createMiddleware, summarizationMiddleware, todoListMiddleware } from 'langchain'
 import { z } from 'zod'
-import type { AccountTag, Chat, ChatMessage, ChatSummary, DataItem, DataSummary, Part, TaskResult, Todo } from '../../shared/types.ts'
+import { MCP_MODEL, SERVE_PROMPT, type AccountTag, type Chat, type ChatMessage, type ChatSummary, type DataItem, type DataSummary, type Part, type TaskResult, type Todo } from '../../shared/types.ts'
 import { accountsNote } from '../accounts.ts'
 import { apiKey, refresh } from '../auth.ts'
 import { AI_BASE, models } from '../gateway.ts'
@@ -14,6 +14,7 @@ import type { Browsers } from '../browsers.ts'
 import type { ChromeBridge } from '../chrome/bridge.ts'
 import { kindOf } from '../paths.ts'
 import { DEFAULT_MODEL, settings } from '../settings.ts'
+import { shrinkImage } from '../media.ts'
 import { dataPath, readJson, writeJson } from '../store.ts'
 import * as ws from '../workspace.ts'
 import { contextMiddleware, resilient } from './context.ts'
@@ -21,7 +22,7 @@ import { stepGuard } from './guard.ts'
 import { lessons } from './lesson-store.ts'
 import { ChatData, type Stored } from './memory.ts'
 import { CHROME_PREFIX, makeTools, type Ctx } from './tools.ts'
-import type { McpTool } from '../mcp.ts'
+import type { McpIo, McpTool } from '../mcp.ts'
 
 /**
  * **Agent.** LangChain `createAgent` (LangGraph ReAct döngüsü) + Share97 yapay zekâ geçidinin modelleri:
@@ -48,6 +49,11 @@ type Record = { chat: Chat; lc: StoredMessage[] }
 /** Bir tur: kuyruktan mesaj gelince yeni asistan mesajına geçiliyor (`msg` değişiyor). */
 type Turn = { chat: Chat; msg: ChatMessage }
 type ToolPart = Extract<Part, { type: 'tool' }>
+
+/** MCP araç sonucunun en çok karakteri (yaklaşık 20 bin token). */
+const MCP_MAX_RESULT = 80_000
+/** Hiçbir şeyi değiştirmeyen araçlar: MCP istemcisine `readOnlyHint` ile bildirilir. */
+const READ_ONLY = new Set(['list_browsers', 'test_browser_connection', 'search_history', 'list_chrome_extensions', 'read_page', 'wait_for_text', 'look_at_page', 'extract_tables', 'list_scripts', 'list_bookmarks', 'list_downloads', 'media_info', 'list_chat_media', 'look_at_images', 'search_chat_data', 'read_chat_data', 'list_workflows', 'list_account_contents', 'list_files', 'read_file'])
 
 const CHAT_EMIT_MS = 60
 const MAX_TOOL_RESULT_SHOWN = 4000
@@ -159,7 +165,9 @@ async function chatModel(id: string) {
 }
 
 async function defaultModel(): Promise<string> {
-  return settings().chatModel ?? DEFAULT_MODEL
+  // Sohbet modeli MCP iken (dış agent) uygulamanın kendi işleri (akış görevi, ask_agent) varsayılan modelle çalışır.
+  const m = settings().chatModel
+  return m && m !== MCP_MODEL ? m : DEFAULT_MODEL
 }
 
 function systemPrompt(browsers: Browsers, chrome: ChromeBridge, sub?: string) {
@@ -451,6 +459,32 @@ export class Agent {
 
   private mcpChatId = ''
   private mcpList: McpTool[] | null = null
+  /** Sohbet modeli MCP iken yazılan, dış agent'ın henüz almadığı mesajlar (`chat_wait`). */
+  private mcpInbox: { chatId: string; text: string }[] = []
+  private mcpWaiters = new Set<() => void>()
+  /** Dış agent'ın cevabını bekleyen turlar (sohbet → tur); `chat_reply` bitirir. */
+  private serving = new Map<string, { turn: Turn; text: string; done: () => void }>()
+  /** Aynı tarayıcıya gelen MCP çağrıları sırayla çalışır (istemci paralel çağırsa da tek sekmede iki iş çakışmasın). */
+  private mcpQueues = new Map<string, Promise<unknown>>()
+  /** Dış agent'ın şu an üzerinde çalıştığı sohbet: araç çağrıları o sohbetin turunda görünür. */
+  private servingId = ''
+
+  /** MCP modelli tur: mesaj dış agent'a bırakılır, `chat_reply` (ya da Durdur) gelene kadar beklenir. */
+  private external(turn: Turn, text: string, signal: AbortSignal) {
+    const id = turn.chat.id
+    turn.msg.parts.push({ type: 'notice', level: 'info', text: `Waiting for the external agent connected over MCP (Claude Code, Codex...). It must be serving the chat; give it this prompt: "${SERVE_PROMPT}"` })
+    this.push(turn.chat, true)
+    return new Promise<void>((done, fail) => {
+      this.serving.set(id, { turn, text, done })
+      this.mcpInbox.push({ chatId: id, text })
+      for (const w of this.mcpWaiters) w()
+      signal.addEventListener('abort', () => fail(new Error('stopped')))
+    }).finally(() => {
+      this.serving.delete(id)
+      this.mcpInbox = this.mcpInbox.filter((m) => m.chatId !== id)
+      if (this.servingId === id) this.servingId = ''
+    })
+  }
 
   /** Dış agent'ın araç çağrılarının sohbeti: çağrılar ve onay kartları orada görünüyor. */
   private mcpRecord(): Record {
@@ -470,11 +504,38 @@ export class Agent {
     const r = this.mcpRecord()
     const ctx = { ...this.context({ chat: r.chat, msg: { id: '', role: 'assistant', parts: [] } }, new AbortController().signal, DEFAULT_MODEL, this.data(r.chat.id)), all: true }
     return (this.mcpList = [
-      ...makeTools(ctx).map((t) => ({ name: t.name, description: t.description, inputSchema: z.toJSONSchema(t.schema as z.ZodType, { unrepresentable: 'any' }) })),
+      ...makeTools(ctx).map((t) => ({ name: t.name, description: t.description, inputSchema: z.toJSONSchema(t.schema as z.ZodType, { unrepresentable: 'any' }), ...(READ_ONLY.has(t.name) && { annotations: { readOnlyHint: true } }) })),
       {
         name: 'ask_agent',
         description: "Give a task to the Share97 Desktop agent itself: it works in its own chat in the app with all these tools, its memory and the user's accounts, and this returns its final answer and chat_id. Pass chat_id to continue that chat. Long tasks take minutes.",
         inputSchema: { type: 'object', properties: { prompt: { type: 'string' }, chat_id: { type: 'string' } }, required: ['prompt'] },
+      },
+      {
+        name: 'chat_wait',
+        description: 'Serve the chat of the Share97 Desktop app yourself (the user picked "MCP" as the chat model, so no model of the app is used): wait for the next message the user writes in the app chat. Returns chat_id, the message and the earlier messages of that chat, or says that none came yet (call it again). Then do what the message asks with these tools (your tool calls show up in that chat) and answer with chat_reply. Loop: chat_wait, work, chat_reply, chat_wait ...',
+        inputSchema: { type: 'object', properties: { timeout_s: { type: 'number', description: 'How long to wait, 1-300 seconds. Default 50.' } } },
+      },
+      {
+        name: 'chat_reply',
+        description: 'Write your answer into the app chat you took with chat_wait (markdown). done=false: a progress update, the turn stays open; otherwise the turn ends and the user can write again.',
+        inputSchema: { type: 'object', properties: { chat_id: { type: 'string' }, text: { type: 'string' }, done: { type: 'boolean' } }, required: ['chat_id', 'text'] },
+      },
+      {
+        name: 'stop_chat',
+        description: 'Stop the agent that is running in an app chat (like the Stop button).',
+        inputSchema: { type: 'object', properties: { chat_id: { type: 'string' } }, required: ['chat_id'] },
+      },
+      {
+        name: 'list_chats',
+        annotations: { readOnlyHint: true },
+        description: 'List the chats of the app, newest first: id, title, whether the agent is running in it and whether an approval is waiting.',
+        inputSchema: { type: 'object', properties: {} },
+      },
+      {
+        name: 'read_chat',
+        annotations: { readOnlyHint: true },
+        description: 'Read the messages of an app chat: user and agent texts and the tools the agent called.',
+        inputSchema: { type: 'object', properties: { chat_id: { type: 'string' }, last: { type: 'number', description: 'How many of the latest messages. Default 20.' } }, required: ['chat_id'] },
       },
     ])
   }
@@ -483,7 +544,67 @@ export class Agent {
    * Dış agent'ın araç çağrısı. Uygulamanın kendi agent'ıyla aynı kurallar: onay politikası ayardaki gibi (Onaylı
    * modda kart MCP sohbetinde bekliyor), güvenlik eylemleri her zaman kullanıcıya soruluyor. İstek koparsa iş duruyor.
    */
-  async mcpCall(name: string, args: unknown, signal: AbortSignal): Promise<string> {
+  async mcpCall(name: string, args: unknown, signal: AbortSignal, io: McpIo): Promise<string> {
+    const run = async () => {
+      const out = await this.mcpRun(name, args, signal, io)
+      io.images.splice(0, io.images.length, ...io.images.map((u) => shrinkImage(u)))
+      // İstemcilerin araç sonucu sınırı var (Claude Code'da yaklaşık 25 bin token): aşan sonuç kesilip bildirilir.
+      return out.length > MCP_MAX_RESULT ? `${out.slice(0, MCP_MAX_RESULT)}\n(truncated: ${out.length} characters in total; ask for less, e.g. read_page with query, or a smaller range)` : out
+    }
+    const browser = (args as { browser_id?: unknown } | null)?.browser_id
+    if (typeof browser !== 'string') return run()
+    const next = (this.mcpQueues.get(browser) ?? Promise.resolve()).then(run, run)
+    this.mcpQueues.set(browser, next.catch(() => {}))
+    return next
+  }
+
+  private async mcpRun(name: string, args: unknown, signal: AbortSignal, io: McpIo): Promise<string> {
+    /** Bir sohbetin mesajları düz metin olarak: metinler ve çağrılan araçların adları. */
+    const lines = (id: string, last: number) =>
+      (this.records.get(id)?.chat.messages ?? []).slice(-last).flatMap((m) => {
+        const text = m.parts.map((p) => (p.type === 'text' ? p.text : p.type === 'tool' ? `[tool ${p.name}: ${p.status}]` : '')).filter(Boolean).join('\n').slice(0, 4000)
+        return text ? [{ role: m.role, text }] : []
+      })
+    if (name === 'stop_chat') {
+      const id = (args as { chat_id?: unknown })?.chat_id
+      if (typeof id !== 'string' || !this.records.has(id)) throw new Error('No such chat. list_chats gives the ids.')
+      this.stop(id)
+      return 'Stopped.'
+    }
+    if (name === 'list_chats') return JSON.stringify(this.summaries().slice(0, 100), null, 1)
+    if (name === 'read_chat') {
+      const a = args as { chat_id?: unknown; last?: unknown }
+      if (typeof a?.chat_id !== 'string' || !this.records.has(a.chat_id)) throw new Error('No such chat. list_chats gives the ids.')
+      return JSON.stringify(lines(a.chat_id, Math.min(Math.max(Number(a.last) || 20, 1), 200)), null, 1)
+    }
+    if (name === 'chat_wait') {
+      const ms = Math.min(Math.max(Number((args as { timeout_s?: unknown })?.timeout_s) || 50, 1), 300) * 1000
+      // Alınıp cevaplanmamış mesaj (agent yeniden başladı ya da cevabı unuttu) kaybolmasın: yeniden verilir.
+      const open = this.serving.get(this.servingId)
+      if (open && !this.mcpInbox.length) return JSON.stringify({ chat_id: this.servingId, message: open.text, note: 'This message is still unanswered: finish it and call chat_reply.' }, null, 1)
+      if (!this.mcpInbox.length)
+        await new Promise<void>((ok) => {
+          const end = () => (clearTimeout(timer), this.mcpWaiters.delete(end), signal.removeEventListener('abort', end), ok())
+          const timer = setTimeout(end, ms)
+          this.mcpWaiters.add(end)
+          signal.addEventListener('abort', end)
+        })
+      const m = signal.aborted ? undefined : this.mcpInbox.shift()
+      if (!m) return settings().chatModel === MCP_MODEL ? 'No message yet. Call chat_wait again to keep serving the chat.' : 'No message, and the chat model of the app is not "MCP": the user must pick MCP in the model list of the app chat before messages come here. Tell the user, then call chat_wait again.'
+      this.servingId = m.chatId
+      return JSON.stringify({ chat_id: m.chatId, message: m.text, earlier: lines(m.chatId, 12).slice(0, -1) }, null, 1)
+    }
+    if (name === 'chat_reply') {
+      const a = args as { chat_id?: unknown; text?: unknown; done?: unknown }
+      const s = typeof a?.chat_id === 'string' ? this.serving.get(a.chat_id) : undefined
+      if (!s) throw new Error('This chat is not waiting for an answer (the user stopped it, or it was answered). Call chat_wait.')
+      if (typeof a.text !== 'string' || !a.text.trim()) throw new Error('text is required.')
+      appendText(s.turn.msg, 'text', a.done === false ? `${a.text}\n\n` : a.text)
+      this.push(s.turn.chat, true)
+      if (a.done === false) return 'Shown in the chat. The turn is still open.'
+      s.done()
+      return 'Shown in the chat; the turn is finished. Call chat_wait for the next message.'
+    }
     if (name === 'ask_agent') {
       const a = args as { prompt?: unknown; chat_id?: unknown }
       if (typeof a?.prompt !== 'string' || !a.prompt.trim()) throw new Error('prompt is required.')
@@ -491,22 +612,35 @@ export class Agent {
       const r = this.records.get(id)!
       const stop = () => void this.stop(id)
       signal.addEventListener('abort', stop)
+      // Canlı akış: agent'ın o anki adımı (çağırdığı araç, yazdığı metin) saniyede bir istemciye.
+      let told = ''
+      const tick = setInterval(() => {
+        const p = r.chat.messages.at(-1)?.parts.at(-1)
+        const now = !p ? '' : p.type === 'tool' ? `${p.name} ${p.args.slice(0, 160)}` : p.type === 'text' || p.type === 'reasoning' ? p.text.slice(-300) : p.type
+        if (now && now !== told) io.progress?.((told = now))
+      }, 1000)
       try {
         await this.run(r, a.prompt)
       } finally {
+        clearInterval(tick)
         signal.removeEventListener('abort', stop)
       }
       const last = r.chat.messages.at(-1)
       const answer = last?.parts.filter((p): p is Extract<Part, { type: 'text' }> => p.type === 'text').map((p) => p.text).join('\n').trim()
       return JSON.stringify({ chat_id: id, answer: answer ?? '', ...(last?.error && { error: last.error }) })
     }
-    const r = this.mcpRecord()
+    // Dış agent bir sohbete hizmet ediyorsa çağrı o sohbetin turunda görünür; yoksa MCP sohbetinde.
+    const live = this.serving.get(this.servingId)
+    const r = live ? this.records.get(this.servingId)! : this.mcpRecord()
     const chat = r.chat
     const part: ToolPart = { type: 'tool', id: randomUUID(), name, args: JSON.stringify(args ?? {}).slice(0, ARGS_TAIL), status: 'running', startedAt: Date.now() }
-    const turn: Turn = { chat, msg: { id: randomUUID(), role: 'assistant', parts: [part] } }
-    chat.messages.push(turn.msg)
-    // ponytail: MCP sohbeti tek dosya, son 200 çağrı tutuluyor; daha uzun kayıt gerekirse ayrı günlük.
-    if (chat.messages.length > 200) chat.messages.splice(0, chat.messages.length - 200)
+    const turn: Turn = live?.turn ?? { chat, msg: { id: randomUUID(), role: 'assistant', parts: [] } }
+    turn.msg.parts.push(part)
+    if (!live) {
+      chat.messages.push(turn.msg)
+      // ponytail: MCP sohbeti tek dosya, son 200 çağrı tutuluyor; daha uzun kayıt gerekirse ayrı günlük.
+      if (chat.messages.length > 200) chat.messages.splice(0, chat.messages.length - 200)
+    }
     this.push(chat, true)
     const reject = () => {
       for (const p of turn.msg.parts) if (p.type === 'approval' && p.status === 'pending') this.answer(p.id, false)
@@ -516,7 +650,12 @@ export class Agent {
     try {
       const data = this.data(chat.id)
       data.embeddings = embeddings()
-      const t = makeTools({ ...this.context(turn, signal, await defaultModel(), data), all: true }).find((x) => x.name === name)
+      // Görsel dış agent'a gider: bakmak için uygulamanın (api14) vision modeli çağrılmaz.
+      const vision = async (question: string, url: string | string[]) => {
+        io.images.push(...[url].flat())
+        return `The image is attached to this result: look at it yourself. Question: ${question}`
+      }
+      const t = makeTools({ ...this.context(turn, signal, await defaultModel(), data), all: true, images: io.images, vision }).find((x) => x.name === name)
       if (!t) throw new Error(`Unknown tool: ${name}`)
       out = String(await (t as unknown as { invoke(a: unknown): Promise<unknown> }).invoke(args ?? {}))
       return out
@@ -568,7 +707,7 @@ export class Agent {
     }
     // Kullanıcı görev sohbetine kendisi yazdı: artık başında biri var, onay politikası ayardaki gibi.
     r.chat.task = false
-    await this.run(r, text, undefined, ctx)
+    await this.run(r, text, settings().mcp && settings().chatModel === MCP_MODEL ? MCP_MODEL : undefined, ctx)
   }
 
   private async run(r: Record, text: string, model?: string, ctx?: { note?: string; accounts?: AccountTag[] }) {
@@ -587,7 +726,8 @@ export class Agent {
     this.beats.set(chat.id, Date.now())
     const history = mapStoredMessagesToChatMessages(r.lc)
     // Hata ya da durdurmada o ana kadarki adımlar (araç sonuçları dahil) korunsun: her model adımından önceki durum.
-    let snapshot: BaseMessage[] = [...history, new HumanMessage(withNote(text, ctx?.note))]
+    const asked = withNote(text, ctx?.note)
+    let snapshot: BaseMessage[] = [...history, new HumanMessage(asked)]
     let final: BaseMessage[] | null = null
     let saved = Date.now()
     const watch = this.watchdog(turn, controller.signal)
@@ -595,6 +735,12 @@ export class Agent {
     try {
       const modelId = model ?? (await defaultModel())
       chat.model = modelId
+      if (modelId === MCP_MODEL) {
+        // Model yok: mesajı MCP ile bağlı dış agent alır, araçları kendisi çağırır, cevabı `chat_reply` ile yazar.
+        await this.external(turn, asked, controller.signal)
+        final = [...snapshot, new AIMessage(turn.msg.parts.filter((p): p is Extract<Part, { type: 'text' }> => p.type === 'text').map((p) => p.text).join('\n') || '(no answer)')]
+        return
+      }
       const data = this.data(chat.id)
       data.embeddings = embeddings()
       const ctx = { ...this.context(turn, controller.signal, modelId, data), only: this.locks.get(chat.id) }
@@ -714,7 +860,8 @@ export class Agent {
   private watchdog(turn: Turn, signal: AbortSignal) {
     let warned = false
     return setInterval(() => {
-      if (signal.aborted) return
+      // MCP sohbetinde model yok: dış agent'ın gelmesi beklenir, "model yanıt vermiyor" uyarısı anlamsız.
+      if (signal.aborted || turn.chat.model === MCP_MODEL) return
       const now = Date.now()
       let changed = false
       for (const p of turn.msg.parts)

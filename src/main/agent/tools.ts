@@ -63,6 +63,8 @@ export type Ctx = {
   data: ChatData
   /** Bu tarayıcı şu an başka bir işin elinde mi (akış görevi ya da başka bir alt agent): tek sekmede iki iş birbirini bozmasın. */
   taken?(browserId: string): boolean
+  /** Dış agent (MCP) çağrısı: ekran görüntüleri vision modeline sorulmaz, buraya konur ve sonuca görsel olarak eklenir. */
+  images?: string[]
   /** Bütün araçlar (MCP listesi): duruma göre daraltma yapılmaz. */
   all?: boolean
   /** Başıboş görev tek bir tarayıcıya kilitli (hesabın bağlantıda tanımlı tarayıcısı): başka tarayıcı kullanılamaz, yenisi açılamaz. */
@@ -337,10 +339,17 @@ export function makeTools(ctx: Ctx) {
    * numara seçerse tıklama öğenin gerçek merkezine gidiyor; numarasız hedef (canvas, görsel, site dışı
    * iframe) için ızgara koordinatı. İşaretler görüntüden hemen sonra kalkıyor.
    */
-  async function locate(d: Driver, what: string) {
+  /** Tıklanabilir öğeleri numaralanmış ekran görüntüsü ve numaraların etiketleri. */
+  async function marked(d: Driver) {
     const marks = await page.mark(d).catch((): page.Mark[] => [])
     const shot = await d.screenshot().finally(() => page.unmark(d).catch(() => {}))
-    const list = marks.filter((m) => m.label).map((m) => `${m.n} ${JSON.stringify(m.label)}`).join('; ')
+    return { marks, shot, list: marks.filter((m) => m.label).map((m) => `${m.n} ${JSON.stringify(m.label)}`).join('; ') }
+  }
+
+  /** `given`: hedefi çağıran kendisi gördü (numara ya da ızgara noktası); vision'a sorulmaz. */
+  async function locate(d: Driver, what: string, given?: { mark?: number; x?: number; y?: number }) {
+    const { marks, shot, list } = await marked(d)
+    if (given) return page.parsePoint(JSON.stringify({ ...given, label: what }), marks)
     const question = [
       `Find this on the screenshot: ${JSON.stringify(what)}.`,
       marks.length ? `Clickable elements are outlined in magenta, each with its number in a magenta tag at its top-left corner.${list ? ` Their labels by number: ${list}.` : ''}` : '',
@@ -623,10 +632,16 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     def(
       'click_by_vision',
       'Find an element on a screenshot with a vision model and click it with a real mouse click. Clickable elements are numbered on the screenshot so the click lands exactly on the chosen element; things without a number (canvas, images, embedded frames) are clicked by position. Use it when read_page does not list the element, its ref is not found, or click has no effect: canvas, shadow DOM, cross-site iframes, custom widgets, unlabeled icons, export/download buttons. Describe the target by its text, icon and position. Only the visible screen is searched: scroll first if needed. Downloaded files are moved to the workspace and added to chat data.',
-      z.object({ ...target, target: z.string().describe('e.g. "the Download CSV button in the top right of the report"'), double: z.boolean().optional().describe('Double-click.'), risky: z.boolean().optional() }),
+      z.object({ ...target, target: z.string().describe('e.g. "the Download CSV button in the top right of the report"'), double: z.boolean().optional().describe('Double-click.'), risky: z.boolean().optional(), mark: z.number().int().optional().describe('Only when you saw the numbered screenshot yourself: the number of the element.'), x: z.number().min(0).max(1000).optional().describe('With y: the center of the target on a 0-1000 grid over the screenshot you saw.'), y: z.number().min(0).max(1000).optional() }),
       (a) =>
         onTab(a, async (d) => {
-          const p = await locate(d, a.target)
+          const given = a.mark !== undefined || (a.x !== undefined && a.y !== undefined) ? { mark: a.mark, x: a.x, y: a.y } : undefined
+          if (ctx.images && !given) {
+            const m = await marked(d)
+            ctx.images.push(m.shot)
+            return `The screenshot is attached; clickable elements are outlined in magenta with a number at the top-left corner${m.list ? ` (labels by number: ${m.list})` : ''}. Find "${a.target}" on it yourself and call click_by_vision again with mark (its number), or with x and y (its center on a 0-1000 grid over the screenshot, 0,0 top-left) when it has no number.`
+          }
+          const p = await locate(d, a.target, given)
           if (!p) return `Not found on the visible screen: "${a.target}". Scroll, or describe it differently, or use look_at_page to see what is there.`
           const el = await page.atPoint(d, p)
           const label = el.label || p.label
@@ -676,6 +691,30 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     }
   }
   const scriptPath = (site: string, name: string) => `scripts/${safeName(hostOf(`https://${site.replace(/^https?:\/\//, '')}`) || site)}/${safeName(name)}.js`
+  /**
+   * **Ham tarayıcı denetimi** (yalnız dış agent'a, MCP): hazır araçların kapsamadığı her tarayıcı özelliği Chrome DevTools
+   * Protocol ile. Onay politikasına bağlı (çerez okumak, ağı değiştirmek gibi her şeyi yapabilir).
+   */
+  const cdpTools = [
+    def(
+      'browser_cdp',
+      'Send any Chrome DevTools Protocol command to a tab: everything the dedicated tools do not cover (Network.getCookies / setCookie, Emulation.setDeviceMetricsOverride / setGeolocationOverride / setUserAgentOverride, DOM.*, CSS.*, Storage.*, Input.dispatchMouseEvent / dispatchKeyEvent, Page.captureScreenshot with clip or full page, Page.printToPDF, Runtime.evaluate, Performance.getMetrics ...). Returns the JSON result of the command; a screenshot comes back as an image. Prefer the dedicated tools (read_page, click, type_text, navigate) for ordinary work.',
+      z.object({ ...target, method: z.string().regex(/^[A-Z][A-Za-z]+\.[a-zA-Z]+$/).describe('e.g. Network.getCookies'), params: z.record(z.string(), z.unknown()).optional() }),
+      (a) =>
+        onTab(a, async (d) => {
+          if (!(await ctx.approve(`Sekmeye tarayıcı komutu gönderilecek (${(await d.info()).url}): ${a.method} ${JSON.stringify(a.params ?? {}).slice(0, 200)}`))) return 'The user rejected this command.'
+          const out = await d.cdp<Record<string, unknown>>(a.method, a.params)
+          if (a.method === 'Page.captureScreenshot' && typeof out?.data === 'string' && ctx.images) {
+            ctx.images.push(`data:image/${String(a.params?.format ?? 'png')};base64,${out.data}`)
+            return 'The screenshot is attached.'
+          }
+          const text = JSON.stringify(out ?? {})
+          return text.length > 60_000 ? `${text.slice(0, 60_000)}
+(truncated: ${text.length} characters; narrow the command)` : text
+        }),
+    ),
+  ]
+
   const codeTools = [
     def(
       'run_script',
@@ -767,6 +806,17 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
       const copy = t && b.duplicateTab(a.browser_id, t.id)
       if (!copy) throw new Error('Tab not found.')
       return JSON.stringify({ tab_id: copy.id })
+    }),
+    def('move_tab', 'Move a tab of an app browser to another position in its tab strip (index 0 is the first).', z.object({ ...target, tab_id: z.string(), index: z.number().int().min(0) }), async (a) => {
+      if (chromeOf(a.browser_id) || !b.tab(a.browser_id, a.tab_id)) throw new Error('Tab not found in an app browser.')
+      b.moveTab(a.browser_id, a.tab_id, a.index)
+      return 'Moved.'
+    }),
+    def('close_other_tabs', 'Close every tab of an app browser except this one.', z.object({ ...target, tab_id: z.string() }), async (a) => {
+      if (chromeOf(a.browser_id) || !b.tab(a.browser_id, a.tab_id)) throw new Error('Tab not found in an app browser.')
+      if (!(await ctx.approve(`"${b.get(a.browser_id)?.name}" tarayıcısında bu sekme dışındaki bütün sekmeler kapatılacak.`))) return 'The user rejected closing the tabs.'
+      b.closeOtherTabs(a.browser_id, a.tab_id)
+      return 'Closed the other tabs.'
     }),
     def('reopen_closed_tab', 'Reopen the most recently closed tab (Ctrl+Shift+T): of the app browsers, or of a Chrome with browser_id chrome:<id> (a closed Chrome window comes back whole).', z.object({ browser_id: z.string().optional() }), async (a) => {
       const cid = a.browser_id && chromeOf(a.browser_id)
@@ -1518,5 +1568,5 @@ ${await ctx.vision(a.question, images)}`
 
   // Kullanılamayacak araçlar modele gönderilmiyor: bağlı Chrome yoksa eklenti araçları, hesaba kilitli akış görevinde akış yönetimi.
   const chromeOn = ctx.all || cb.instances().length > 0
-  return [...browserTools, ...(chromeOn ? chromeExtensionTools : []), ...pageTools, ...codeTools, ...chromeTools, ...mediaTools, ...dataTools, ...(ctx.only ? [] : [...workflowTools, ...accountTools]), ...fileTools]
+  return [...browserTools, ...(chromeOn ? chromeExtensionTools : []), ...pageTools, ...(ctx.all ? cdpTools : []), ...codeTools, ...chromeTools, ...mediaTools, ...dataTools, ...(ctx.only ? [] : [...workflowTools, ...accountTools]), ...fileTools]
 }

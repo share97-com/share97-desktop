@@ -113,3 +113,9 @@ share97-chrome/  Chrome eklentisi
 `src/main/mcp.ts`: uygulamanın bütün agent araçları (ve `ask_agent`) `http://127.0.0.1:<port>/mcp` adresinde (varsayılan port 9797, Streamable HTTP, `Authorization: Bearer <anahtar>`). `GET /` araç dökümanıdır (ad, açıklama, parametreler; anahtarsız, tarayıcıdan açılır). Uygulamadaki MCP ekranı (`Mcp.tsx`) aç/kapa, port, anahtar ve Claude Code, Codex, Claude Desktop, Cursor için hazır bağlanma ayarını verir.
 
 Medya özgün boyutta paylaşılır: `upload_files` / `upload_account_content` sonucu özgün boyutu ve "kırpma ekranında Original seç" uyarısını taşır; `media_info` boyutu, `crop_image` görsel kırpmayı verir (`src/main/media.ts`). Video kırpma yok (ffmpeg taşınmıyor): platformun kendi kırpma denetimi kullanılır.
+
+Sohbet modeli **MCP** (`MCP_MODEL`): sohbete yazılan mesajı uygulamanın modeli değil, bağlı dış agent alır (`chat_wait`), araçları kendisi çağırır (çağrılar o sohbetin turunda görünür) ve cevabı `chat_reply` ile yazar. MCP çağrılarında ekran görüntüsü vision modeline sorulmaz, sonuca görsel olarak eklenir (`Ctx.images`); `click_by_vision` dış agent'tan `mark` ya da `x`,`y` alır. `progressToken` taşıyan `tools/call` SSE ile cevaplanır: `ask_agent` adımlarını canlı bildirir. Medya üretimi (görsel, video, ses) ve `account_profile` yine uygulamanın modellerini kullanır.
+
+`browser_cdp` (yalnız MCP listesinde): hazır araçların kapsamadığı her tarayıcı özelliği için ham Chrome DevTools Protocol komutu; onay politikasına bağlı.
+
+MCP sunucusunun ayrıntıları: `initialize` uygulama sürümünü ve kısa kullanım kılavuzunu (`INSTRUCTIONS`) verir; `prompts` listesinde `serve_chat` vardır; değiştirmeyen araçlar `readOnlyHint` taşır; aynı tarayıcıya gelen çağrılar sıraya girer; metin sonucu 80 bin karakterde kesilir, görsel 1568 piksele küçültülür; akış cevabında 15 saniyede bir yaşam sinyali gider; son bağlanan istemci MCP ekranında görünür.

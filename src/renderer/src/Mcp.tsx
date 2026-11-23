@@ -1,7 +1,8 @@
 import { BookOpen, Copy, Loader2, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { SERVE_PROMPT, type McpStatus } from '../../shared/types.ts'
 import { api, useSettings } from './hooks.ts'
-import { t } from './i18n.ts'
+import { dateTime, t } from './i18n.ts'
 import { toast } from './Toast.tsx'
 import { button, Card, Page, primary, Switch } from './ui.tsx'
 
@@ -29,10 +30,13 @@ function Snippet({ title, where, code }: { title: string; where?: string; code: 
  */
 export function McpView() {
   const [s, update] = useSettings()
-  const [status, setStatus] = useState<{ running: boolean; error?: string }>({ running: false })
+  const [status, setStatus] = useState<McpStatus>({ running: false })
   useEffect(() => {
-    const timer = setTimeout(() => void api().settings.mcpStatus().then(setStatus), 400)
-    return () => clearTimeout(timer)
+    // Durum ve son bağlanan agent: ayar değişince hemen, sonra ekran açıkken 5 saniyede bir.
+    const read = () => void api().settings.mcpStatus().then(setStatus)
+    const first = setTimeout(read, 400)
+    const timer = setInterval(read, 5000)
+    return () => (clearTimeout(first), clearInterval(timer))
   }, [s?.mcp, s?.mcpPort, s?.mcpToken])
   if (!s) return <Loader2 className="m-8 size-5 animate-spin" />
   const url = `http://127.0.0.1:${s.mcpPort}/mcp`
@@ -53,6 +57,7 @@ export function McpView() {
           <div className="min-w-0 flex-1">
             <p className="text-sm">{m.enable}</p>
             <p className={`text-xs ${s.mcp && status.error ? 'text-danger' : 'text-muted'}`}>{s.mcp ? (status.error ? `${m.failed}: ${status.error}` : status.running ? url : '') : m.off}</p>
+            {s.mcp && status.client && <p className="text-xs text-ok">{m.lastClient}: {status.client.name || 'MCP'}, {dateTime.format(status.client.at)}</p>}
           </div>
           <label className="flex items-center gap-2 text-xs text-muted">
             {m.port}
@@ -90,6 +95,8 @@ export function McpView() {
             where="claude_desktop_config.json"
             code={JSON.stringify({ mcpServers: { share97: { command: 'npx', args: ['-y', 'mcp-remote', url, '--header', 'Authorization:${SHARE97_AUTH}'], env: { SHARE97_AUTH: auth } } } }, null, 2)}
           />
+          <p className="border-t border-line pt-4 text-xs text-muted">{m.model}</p>
+          <Snippet title={m.serve} code={SERVE_PROMPT} />
           <Snippet title={m.other} where="mcp.json" code={JSON.stringify({ mcpServers: { share97: { type: 'http', url, headers: { Authorization: auth } } } }, null, 2)} />
         </Card>
       )}

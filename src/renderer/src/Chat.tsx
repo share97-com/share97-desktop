@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import mark from './mark.svg'
-import type { Chat as ChatT, ChatMessage, Effort, Part, QueuedMessage } from '../../shared/types.ts'
+import { MCP_MODEL, type Chat as ChatT, type ChatMessage, type Effort, type Part, type QueuedMessage } from '../../shared/types.ts'
 import { ChatDataPanel } from './ChatData.tsx'
 import { api, fileUrl, useConnections, useModels, useSettings } from './hooks.ts'
 import { cost as costFormat, t } from './i18n.ts'
@@ -63,7 +63,7 @@ function useAlerts(chat: ChatT | null) {
     if (fresh) seen.current = { id: chat.id, keys: new Set() }
     chat.messages.forEach((m, mi) =>
       m.parts.forEach((p, pi) => {
-        const key = p.type === 'tool' && p.status === 'error' ? `t:${p.id}` : p.type === 'notice' ? `n:${mi}:${pi}` : null
+        const key = p.type === 'tool' && p.status === 'error' ? `t:${p.id}` : p.type === 'notice' && p.level !== 'info' ? `n:${mi}:${pi}` : null
         if (!key || seen.current.keys.has(key)) return
         seen.current.keys.add(key)
         if (fresh) return
@@ -361,7 +361,7 @@ function PartView({ p, live }: { p: Part; live: boolean }) {
     }
     case 'notice':
       return (
-        <div role="alert" className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${p.level === 'error' ? 'border-danger/40 bg-danger/10 text-danger' : 'border-warn/40 bg-warn/10 text-warn dark:text-warn'}`}>
+        <div role={p.level === 'info' ? 'status' : 'alert'} className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${p.level === 'info' ? 'border-line text-muted' : p.level === 'error' ? 'border-danger/40 bg-danger/10 text-danger' : 'border-warn/40 bg-warn/10 text-warn dark:text-warn'}`}>
           <TriangleAlert className="mt-0.5 size-4 shrink-0" /> {p.text}
         </div>
       )
@@ -717,7 +717,7 @@ function Composer({ chatId, running, cost, queued, dataCount, onData, lastSent, 
           className="block w-full resize-none bg-transparent px-4 pt-3 text-[15px] outline-none placeholder:text-muted"
         />
         <div className="flex items-center gap-2 px-3 pb-2 pt-1">
-          <ModelPicker value={settings?.chatModel ?? null} onChange={(id) => update({ chatModel: id })} />
+          <ModelPicker mcp={settings?.mcp} value={settings?.chatModel ?? null} onChange={(id) => update({ chatModel: id })} />
           <select value={settings?.effort ?? 'medium'} onChange={(e) => update({ effort: e.target.value as Effort })} className="rounded-full border border-muted/70 bg-transparent px-2.5 py-1 text-xs text-muted hover:bg-raised" aria-label={t.effort} title={t.effort}>
             {(Object.keys(t.efforts) as Effort[]).map((k) => (
               <option key={k} value={k}>
@@ -761,7 +761,7 @@ function Composer({ chatId, running, cost, queued, dataCount, onData, lastSent, 
 }
 
 /** Araç çağırabilen metin modelleri (fiyatlar kullanıcının ödediği tutar); aranabilir. */
-export function ModelPicker({ value, onChange, category = 'text', toolsOnly = true, visionOnly = false, placeholder }: { value: string | null; onChange: (id: string | null) => void; category?: 'text' | 'image' | 'video' | 'speech'; toolsOnly?: boolean; visionOnly?: boolean; placeholder?: string }) {
+export function ModelPicker({ value, onChange, category = 'text', toolsOnly = true, visionOnly = false, placeholder, mcp }: { mcp?: boolean; value: string | null; onChange: (id: string | null) => void; category?: 'text' | 'image' | 'video' | 'speech'; toolsOnly?: boolean; visionOnly?: boolean; placeholder?: string }) {
   const { list, error } = useModels(category)
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
@@ -772,7 +772,7 @@ export function ModelPicker({ value, onChange, category = 'text', toolsOnly = tr
   return (
     <div className="relative">
       <button type="button" className="flex max-w-64 items-center gap-1 rounded-full px-2.5 py-1 text-xs hover:bg-raised" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <span className={`truncate ${value ? "readout !text-fg" : "text-warn"}`}>{value ?? placeholder ?? t.pickModel}</span>
+        <span className={`truncate ${value ? "readout !text-fg" : "text-warn"}`}>{value === MCP_MODEL ? 'MCP' : (value ?? placeholder ?? t.pickModel)}</span>
         <ChevronDown className="size-3.5 shrink-0 text-muted" />
       </button>
       {open && (
@@ -785,6 +785,13 @@ export function ModelPicker({ value, onChange, category = 'text', toolsOnly = tr
               {placeholder && (
                 <button className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-panel" onClick={() => (onChange(null), setOpen(false))}>
                   {placeholder}
+                </button>
+              )}
+              {/* MCP: sohbeti api14 modeli değil, bağlı dış agent (Claude Code, Codex...) yürütür. */}
+              {mcp && (
+                <button className={`w-full rounded-lg px-3 py-2 text-left hover:bg-panel ${value === MCP_MODEL ? 'bg-panel' : ''}`} onClick={() => (onChange(MCP_MODEL), setOpen(false))}>
+                  <p className="text-sm">MCP</p>
+                  <p className="text-xs text-muted">{t.mcp.model}</p>
                 </button>
               )}
               {error && <p className="p-3 text-sm text-danger">{error}</p>}
