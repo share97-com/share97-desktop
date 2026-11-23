@@ -154,6 +154,8 @@ export const nextFolder = (folders: string[]) => String(Math.max(0, ...folders.f
 /* ---------------- Hesap içerik planı ---------------- */
 
 export const MAX_PER_DAY = 12
+/** Aralıklı planın en uzun aralığı: 30 gün. */
+export const MAX_EVERY_HOURS = 720
 const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
 
 /** Günde `perDay` paylaşımın saatleri: 09:00–21:00 arasına eşit dağılır (1 → 15:00; 2 → 12:00, 18:00; 3 → 11:00, 15:00, 19:00). */
@@ -176,3 +178,6 @@ export function planSlots(folders: string[], times: string[], from: Date): Recor
     }
   return out
 }
+
+/** Aralıklı plan: klasör sırasıyla `first`ten başlayıp her `everyHours` saatte bir içerik. Dönüş: klasör → ISO zaman. */
+export const intervalSlots = (folders: string[], everyHours: number, first: Date): Record<string, string> => Object.fromEntries(folders.map((f, i) => [f, new Date(first.getTime() + i * everyHours * 3_600_000).toISOString()]))

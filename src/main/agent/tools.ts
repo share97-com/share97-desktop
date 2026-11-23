@@ -29,7 +29,7 @@ import * as ws from '../workspace.ts'
 import { deleteLesson, saveLesson } from './lesson-store.ts'
 import { MAX_LESSON } from './lessons.ts'
 import { lockProblem, schedulerNote } from '../../shared/platforms.ts'
-import { MAX_PER_DAY } from '../../shared/contents.ts'
+import { MAX_EVERY_HOURS, MAX_PER_DAY } from '../../shared/contents.ts'
 import type { ChatData } from './memory.ts'
 import * as page from './page.ts'
 import type { Driver } from './page.ts'
@@ -1379,14 +1379,27 @@ ${await ctx.vision(a.question, images)}`
     }),
     def(
       'plan_account_posts',
-      "Spread the pending contents of an account over the coming days: per_day posts a day, in folder order, at times (HH:MM, local) or evenly between 09:00 and 21:00. ALWAYS ask the user first how many posts per day they want (and from which day, at what times) unless they already said it; never assume. The result says what to do next for this platform: schedule each content in the platform's own scheduler, or leave them to this app, which publishes each content at its time while it is running.",
-      z.object({ ...who, per_day: z.number().int().min(1).max(MAX_PER_DAY), times: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).max(MAX_PER_DAY).optional(), start_date: z.string().regex(/^\d{4}-\d\d-\d\d$/).optional().describe('First day, YYYY-MM-DD (local). Default: from now.') }),
+      "Bulk-plan the pending contents of an account, in folder order. Either per_day posts a day (at times HH:MM local, or evenly between 09:00 and 21:00) or one post every every_hours hours (48 = every 2 days, 168 = weekly); give exactly one of the two. Call list_account_contents first and fix or report contents with problems; contents that cannot be published (no media where the platform needs it, empty folder) are left out and named in the result. ALWAYS ask the user first how often they want to post (per day or which interval, from which day, at what times) unless they already said it; never assume. The result says what to do next for this platform: schedule each content in the platform's own scheduler, or leave them to this app, which publishes each content at its time while it is running.",
+      z.object({
+        ...who,
+        per_day: z.number().int().min(1).max(MAX_PER_DAY).optional(),
+        every_hours: z.number().int().min(1).max(MAX_EVERY_HOURS).optional().describe('Interval plan: one post every N hours.'),
+        times: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).max(MAX_PER_DAY).optional().describe('per_day: the posting times of a day. every_hours: only the first one is used, as the time of the first post.'),
+        start_date: z.string().regex(/^\d{4}-\d\d-\d\d$/).optional().describe('First day, YYYY-MM-DD (local). Default: from now.'),
+      }),
       async (a) => {
         const l = findAccount(a.handle, a.platform)
-        const from = a.start_date ? new Date(`${a.start_date}T00:00:00`) : new Date()
-        const slots = await planAccount(l, a.per_day, a.times, from < new Date() ? new Date() : from)
+        if (!a.per_day === !a.every_hours) throw new Error('Give exactly one of per_day and every_hours.')
+        const now = new Date()
+        let from = a.start_date ? new Date(`${a.start_date}T00:00:00`) : now
+        if (a.every_hours) {
+          // Aralıklı plan: ilk paylaşım verilen günün saatinde (saat yoksa 09:00); gün verilmediyse ya da geçmişteyse bir aralık sonra.
+          const first = a.start_date ? new Date(`${a.start_date}T${a.times?.[0] ?? '09:00'}:00`) : null
+          from = first && first > now ? first : new Date(now.getTime() + a.every_hours * 3_600_000)
+        } else if (from < now) from = now
+        const { slots, skipped } = await planAccount(l, { perDay: a.per_day, everyHours: a.every_hours, times: a.times, from })
         const local = (iso: string) => new Date(iso).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })
-        return `Planned ${Object.keys(slots).length} content(s) of @${l.handle}, ${a.per_day} a day:\n${Object.entries(slots).map(([f, at]) => `- ${contentsRel(l, f)} at ${local(at)}`).join('\n')}\nWork in browser_id ${agentBrowser(l) ?? '(none: the account has no browser here)'}. ${schedulerNote(l.platform)}`
+        return `Planned ${Object.keys(slots).length} content(s) of @${l.handle}, ${a.every_hours ? `one every ${a.every_hours} hours` : `${a.per_day} a day`}:${skipped.length ? `\nLeft out (tell the user): ${skipped.map((x) => `${x.folder}: ${x.reason}`).join('; ')}` : ''}\n${Object.entries(slots).map(([f, at]) => `- ${contentsRel(l, f)} at ${local(at)}`).join('\n')}\nWork in browser_id ${agentBrowser(l) ?? '(none: the account has no browser here)'}. ${schedulerNote(l.platform)}`
       },
     ),
     def(

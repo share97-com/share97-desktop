@@ -80,3 +80,12 @@ test('hesap planı: günde N paylaşım gün içine dağılır, geçmiş yuva at
   assert.deepEqual(Object.values(plan).map(local), ['23 18', '24 12', '24 18', '25 12'])
   assert.throws(() => planSlots(['2'], ['25:00'], from))
 })
+
+test('aralıklı plan: ilk zamandan başlayıp her N saatte bir içerik', async () => {
+  const { intervalSlots } = await import('./contents.ts')
+  const first = new Date(2026, 0, 5, 10, 0)
+  const slots = intervalSlots(['1', '2', '3'], 36, first)
+  assert.deepEqual(Object.keys(slots), ['1', '2', '3'])
+  assert.equal(slots['1'], first.toISOString())
+  assert.equal(Date.parse(slots['3']) - Date.parse(slots['1']), 72 * 3_600_000)
+})

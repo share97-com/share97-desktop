@@ -1,4 +1,4 @@
-import { Bot, Check, ExternalLink, FolderOpen, Loader2, LogIn, MessageSquare, MessagesSquare, Monitor, Pencil, Play, Plus, RefreshCw, Server, Sparkles, Trash2, UserPlus, X } from 'lucide-react'
+import { Bot, Check, ChevronDown, ExternalLink, FolderOpen, Loader2, LogIn, MessageSquare, MessagesSquare, Monitor, Pencil, Play, Plus, RefreshCw, Server, Sparkles, Trash2, UserPlus, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { usesContents, type ContentSettings } from '../../shared/contents.ts'
 import { FLOW_TEMPLATES, type FlowTemplate, type Overview, type Schedule, type SocialAccount } from '../../shared/types.ts'
@@ -19,13 +19,16 @@ const TEMPLATE_ICON: Record<FlowTemplate, typeof Bot> = { post: FolderOpen, aiPo
  * (sıra, tekrar), zamanlama ve paylaşılacak hesaplar, bu cihazdaki içerik klasörleri (ekle, yeniden sıraya al,
  * uyarılar) ve yapay zekâ ile içerik üretimi; sıradaki yuvalar, son
  * çalışmaların sonucu, hesaba bağlı bütün cihazlar (Worker'lar; bu bilgisayar en başta, vurgulu) ve bu
- * cihazın etkinlik günlüğü. Adımlar sitenin düzenleyicisinde.
+ * cihazın etkinlik günlüğü. Adımlar sitenin düzenleyicisinde. Akış kartı kapalıyken sade (aç/kapa, ad, şimdi çalıştır);
+ * ayarları ok ile açılır. Cihazlar ve etkinlik günlüğü de kapalı başlar.
  */
 export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void }) {
   const state = useConnections()
   const activity = useActivity()
   const chats = useChats()
   const [busy, setBusy] = useState<string | null>(null)
+  /** Ayarları açık olan akış: liste sade kalsın diye zamanlama, hesaplar, görev, cihaz ve silme kartın içinde açılır. */
+  const [open, setOpen] = useState<string | null>(null)
   const ov = state?.overview
   const act = (key: string, p: Promise<unknown>, done?: (v: unknown) => void) => {
     setBusy(key)
@@ -80,6 +83,69 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
         !state?.error && <Loader2 className="size-5 animate-spin text-muted" />
       ) : (
         <>
+          {!ov.workflows.length && (
+            <Card className="text-center">
+              <p className="text-sm text-muted">{t.flows.empty}</p>
+            </Card>
+          )}
+          <div className="space-y-2">
+            {ov.workflows.map((w) => (
+              <div key={w.id} className="rounded-lg border border-line bg-panel/80 p-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <Switch on={w.active} label={w.active ? t.flows.active : t.flows.paused} disabled={busy === w.id} onChange={(on) => act(w.id, api().workflows.setActive(w.id, on))} />
+                <div className="min-w-0 flex-1">
+                  <FlowName name={w.name} disabled={busy === w.id} onRename={(name) => act(w.id, api().workflows.rename(w.id, name))} />
+                  <p className="truncate text-xs text-muted">
+                    {w.active ? t.flows.active : t.flows.paused}, {t.flows.lastRun}: {when(w.lastRunAt)}
+                  </p>
+                </div>
+                <button
+                  className={button}
+                  disabled={busy === w.id}
+                  onClick={() =>
+                    act(w.id, api().workflows.run(w.id), (r) => {
+                      const out = r as { status: string; error: string | null }
+                      toast(`${w.name}: ${t.flows.runStatus[out.status] ?? out.status}${out.error ? `: ${out.error}` : ''}`, out.status === 'success' ? 'ok' : 'error')
+                    })
+                  }
+                >
+                  {busy === w.id ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} {t.flows.runNow}
+                </button>
+                <button className={iconButton} aria-expanded={open === w.id} title={t.settings} aria-label={`${t.settings}: ${w.name}`} onClick={() => setOpen(open === w.id ? null : w.id)}>
+                  <ChevronDown className={`size-4 transition-transform ${open === w.id ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+              {open === w.id && (
+              <>
+              <ScheduleRow w={w} accounts={state?.accounts ?? []} disabled={busy === w.id} onSchedule={(s) => act(w.id, api().workflows.setSchedule(w.id, s), () => toast(t.flows.scheduleSaved))} onAccounts={(ids) => act(w.id, api().workflows.setAccounts(w.id, ids))} />
+              {w.instruction !== null && <TaskRow key={w.instruction} value={w.instruction} disabled={busy === w.id} onSave={(text) => act(w.id, api().workflows.setInstruction(w.id, text), () => toast(t.flows.taskSaved))} />}
+              {usesContents(w.nodes) && <ContentRow w={w} ov={ov} accounts={state?.accounts ?? []} disabled={busy === w.id} onChange={(content) => act(w.id, api().workflows.setContent(w.id, content))} onUseThisDevice={() => act(w.id, api().workflows.setWorker(w.id, ov.me))} />}
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+                <label className="me-auto flex items-center gap-2 text-xs text-muted">
+                  {t.flows.worker}
+                  <select className={`${input} w-44 py-1`} value={w.workerId ?? ''} disabled={busy === w.id} onChange={(e) => act(w.id, api().workflows.setWorker(w.id, e.target.value || null))}>
+                    <option value="">{t.flows.workerAuto}</option>
+                    {ov.workers.map((k) => (
+                      <option key={k.id} value={k.id}>
+                        {k.name}
+                        {k.id === ov.me ? ` (${t.thisDevice})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className={iconButton} title={t.flows.openEditor} aria-label={t.flows.openEditor} onClick={() => void api().site.open(`/workflows/${w.slug}`)}>
+                  <ExternalLink className="size-4" />
+                </button>
+                <ConfirmButton className={iconButton} title={t.flows.deleteHint} label={t.delete} onConfirm={() => act(w.id, api().workflows.remove(w.id), () => toast(t.flows.deleted(w.name)))}>
+                  <Trash2 className="size-4" />
+                </ConfirmButton>
+              </div>
+              </>
+              )}
+              </div>
+            ))}
+          </div>
+
           <Card>
             <div className="flex flex-wrap items-baseline gap-3">
               <h2 className="text-[1.75rem]">{t.flows.templates}</h2>
@@ -101,60 +167,6 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
               })}
             </div>
           </Card>
-          {!ov.workflows.length && (
-            <Card className="text-center">
-              <p className="text-sm text-muted">{t.flows.empty}</p>
-            </Card>
-          )}
-          <div className="space-y-2">
-            {ov.workflows.map((w) => (
-              <div key={w.id} className="rounded-lg border border-line bg-panel/80 p-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <Switch on={w.active} label={w.active ? t.flows.active : t.flows.paused} disabled={busy === w.id} onChange={(on) => act(w.id, api().workflows.setActive(w.id, on))} />
-                <div className="min-w-0 flex-1">
-                  <FlowName name={w.name} disabled={busy === w.id} onRename={(name) => act(w.id, api().workflows.rename(w.id, name))} />
-                  <p className="truncate text-xs text-muted">
-                    {w.active ? t.flows.active : t.flows.paused}, {t.flows.lastRun}: {when(w.lastRunAt)}
-                  </p>
-                </div>
-                <label className="flex items-center gap-2 text-xs text-muted">
-                  {t.flows.worker}
-                  <select className={`${input} w-44 py-1`} value={w.workerId ?? ''} disabled={busy === w.id} onChange={(e) => act(w.id, api().workflows.setWorker(w.id, e.target.value || null))}>
-                    <option value="">{t.flows.workerAuto}</option>
-                    {ov.workers.map((k) => (
-                      <option key={k.id} value={k.id}>
-                        {k.name}
-                        {k.id === ov.me ? ` (${t.thisDevice})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className={button}
-                  disabled={busy === w.id}
-                  onClick={() =>
-                    act(w.id, api().workflows.run(w.id), (r) => {
-                      const out = r as { status: string; error: string | null }
-                      toast(`${w.name}: ${t.flows.runStatus[out.status] ?? out.status}${out.error ? `: ${out.error}` : ''}`, out.status === 'success' ? 'ok' : 'error')
-                    })
-                  }
-                >
-                  {busy === w.id ? <Loader2 className="size-3.5 animate-spin" /> : <Play className="size-3.5" />} {t.flows.runNow}
-                </button>
-                <button className={iconButton} title={t.flows.openEditor} aria-label={t.flows.openEditor} onClick={() => void api().site.open(`/workflows/${w.slug}`)}>
-                  <ExternalLink className="size-4" />
-                </button>
-                <ConfirmButton className={iconButton} title={t.flows.deleteHint} label={t.delete} onConfirm={() => act(w.id, api().workflows.remove(w.id), () => toast(t.flows.deleted(w.name)))}>
-                  <Trash2 className="size-4" />
-                </ConfirmButton>
-              </div>
-              <ScheduleRow w={w} accounts={state?.accounts ?? []} disabled={busy === w.id} onSchedule={(s) => act(w.id, api().workflows.setSchedule(w.id, s), () => toast(t.flows.scheduleSaved))} onAccounts={(ids) => act(w.id, api().workflows.setAccounts(w.id, ids))} />
-              {w.instruction !== null && <TaskRow key={w.instruction} value={w.instruction} disabled={busy === w.id} onSave={(text) => act(w.id, api().workflows.setInstruction(w.id, text), () => toast(t.flows.taskSaved))} />}
-              {usesContents(w.nodes) && <ContentRow w={w} ov={ov} accounts={state?.accounts ?? []} disabled={busy === w.id} onChange={(content) => act(w.id, api().workflows.setContent(w.id, content))} onUseThisDevice={() => act(w.id, api().workflows.setWorker(w.id, ov.me))} />}
-              </div>
-            ))}
-          </div>
-
           <div className="grid gap-5 lg:grid-cols-2">
             <Card>
               <h2 className="mb-3 text-[1.75rem]">{t.flows.upcoming}</h2>
@@ -201,8 +213,8 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
             </Card>
           </div>
 
-          <Card>
-            <h2 className="text-[1.75rem]">{t.flows.devices}</h2>
+          <details className="rounded-lg border border-line bg-panel p-5">
+            <summary className="cursor-pointer text-[1.75rem]">{t.flows.devices}</summary>
             <p className="mb-4 mt-0.5 text-xs text-muted">{t.flows.devicesHint}</p>
             <div className="grid gap-3 md:grid-cols-2">
               {[...ov.workers]
@@ -224,10 +236,10 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
                 ))}
               {(ov.server.accounts.length > 0 || ov.server.workflows.length > 0) && <Device icon={<Server className="size-4" />} name={t.flows.serverAccounts} mine={false} online seen={null} accounts={ov.server.accounts} flows={ov.server.workflows.length} />}
             </div>
-          </Card>
+          </details>
 
-          <Card>
-            <h2 className="mb-3 text-[1.75rem]">{t.flows.activity}</h2>
+          <details className="rounded-lg border border-line bg-panel p-5">
+            <summary className="mb-3 cursor-pointer text-[1.75rem]">{t.flows.activity}</summary>
             {!activity.length && <p className="text-sm text-muted">{t.flows.noActivity}</p>}
             <ul className="space-y-1.5 text-sm">
               {activity.slice(0, 30).map((a, i) => (
@@ -243,7 +255,7 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
                 </li>
               ))}
             </ul>
-          </Card>
+          </details>
         </>
       )}
     </Page>

@@ -1,7 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { cleanHandle, jobPrompt, platformOf } from '../shared/platforms.ts'
-import { dayTimes, MAX_CAPTION, planSlots, type AccountContent } from '../shared/contents.ts'
+import { dayTimes, intervalSlots, MAX_CAPTION, planSlots, type AccountContent } from '../shared/contents.ts'
 import { agentBrowser, closeAfterJob, localAccounts, openForJob, sessionProblem, type LocalAccount } from './accounts.ts'
 import type { Agent } from './agent/index.ts'
 import { accountRel, contentFiles, contentsRel, listContents, setContentStatus } from './contents.ts'
@@ -14,7 +14,13 @@ import * as ws from './workspace.ts'
  * `published`, notu "scheduled on …"); sunmuyorsa zamanı gelen içeriği cihaz kendisi paylaşır (`accountStep`, uygulama açıkken).
  */
 
-type Plan = { perDay: number; times: string[]; slots: Record<string, string> }
+type Plan = { perDay?: number; everyHours?: number; times: string[]; slots: Record<string, string> }
+
+/** İçerik paylaşılabilir mi (model çağrılmadan): platform görsel/video istiyorsa olmalı, klasör boş olmamalı. Sorun yoksa `null`. */
+const unusable = (l: LocalAccount, i: { caption: string; media: unknown[] }) => {
+  const p = platformOf(l.platform)
+  return p?.needsMedia && !i.media.length ? `${p.label} needs an image or video` : !i.caption && !i.media.length ? 'the folder has no text file and no image or video' : null
+}
 
 const planFile = (l: LocalAccount) => join(ws.root(), accountRel(l), 'schedule.json')
 const readPlan = async (l: LocalAccount): Promise<Plan | null> => JSON.parse(await readFile(planFile(l), 'utf8').catch(() => 'null')) as Plan | null
@@ -35,17 +41,21 @@ export async function plannedContents(l: LocalAccount): Promise<AccountContent[]
 }
 
 /**
- * Bekleyen içerikleri klasör sırasıyla günde `perDay` paylaşıma dağıtır (saatler `times` ya da gün içine eşit, bkz. `dayTimes`),
- * `from`dan sonra. Önceki plan yeniden yazılır. Dönüş: klasör → ISO zaman.
+ * **Toplu plan.** Hesabın bekleyen içeriklerini önce denetler (paylaşılamayacak olan plana girmez, `skipped`), sonra klasör
+ * sırasıyla dağıtır: `everyHours` verilmişse `from`dan başlayıp her N saatte bir; yoksa günde `perDay` paylaşım (saatler
+ * `times` ya da gün içine eşit, bkz. `dayTimes`), `from`dan sonra. Önceki plan yeniden yazılır.
  */
-export async function planAccount(l: LocalAccount, perDay: number, times?: string[], from = new Date()) {
-  const pending = (await listContents(l)).filter((i) => i.status === 'pending').map((i) => i.folder)
-  if (!pending.length) throw new Error(`No pending content in ${contentsRel(l)}. Add contents first.`)
-  const day = times?.length ? times : dayTimes(perDay)
-  const plan: Plan = { perDay, times: day, slots: planSlots(pending, day, from) }
+export async function planAccount(l: LocalAccount, o: { perDay?: number; everyHours?: number; times?: string[]; from?: Date }) {
+  const pending = (await listContents(l)).filter((i) => i.status === 'pending')
+  const skipped = pending.flatMap((i) => (unusable(l, i) ? [{ folder: i.folder, reason: unusable(l, i)! }] : []))
+  const folders = pending.filter((i) => !unusable(l, i)).map((i) => i.folder)
+  if (!folders.length) throw new Error(`No usable pending content in ${contentsRel(l)}${skipped.length ? ` (${skipped.map((x) => `${x.folder}: ${x.reason}`).join('; ')})` : ''}. Add contents first.`)
+  const from = o.from ?? new Date()
+  const day = o.times?.length ? o.times : dayTimes(o.perDay ?? 1)
+  const plan: Plan = o.everyHours ? { everyHours: o.everyHours, times: [], slots: intervalSlots(folders, o.everyHours, from) } : { perDay: o.perDay ?? day.length, times: day, slots: planSlots(folders, day, from) }
   await writeFile(planFile(l), JSON.stringify(plan, null, 2))
   ws.changed()
-  return plan.slots
+  return { slots: plan.slots, skipped }
 }
 
 /** Agent içeriği platformun kendi zamanlayıcısında zamanladı: cihaz bir daha paylaşmaz. */
@@ -67,7 +77,7 @@ export async function accountStep(agent: Agent, run: <T>(fn: () => Promise<T>) =
     if (!due) continue
     const where = `@${l.handle} #${due.folder}`
     const p = platformOf(l.platform)
-    const invalid = p?.needsMedia && !due.media.length ? `${p.label} needs an image or video` : !due.caption && !due.media.length ? 'the folder has no text file and no image or video' : null
+    const invalid = unusable(l, due)
     if (invalid) {
       await setContentStatus(l, due.folder, 'failed', invalid)
       return { text: `${where}: ${invalid}`, ok: false }
