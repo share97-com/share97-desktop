@@ -27,8 +27,8 @@ export function Overlay({ onOverlay, onClose, children, className }: { onOverlay
   )
 }
 
-/** Satır 1: ana sayfa, tarayıcılar (her biri bir çerez deposu), yeni tarayıcı, hesap, ayarlar. */
-export function BrowserStrip({ state, account, view, onView, onOverlay }: { state: BrowsersState; account: Account; view: View | null; onView: (v: View) => void; onOverlay: (open: boolean) => void }) {
+/** Satır 1: ana sayfa, açık tarayıcılar (her biri bir çerez deposu), yeni sekme penceresi (`Picker.tsx`), hesap, ayarlar. */
+export function BrowserStrip({ state, account, view, onView, onOverlay, onNew }: { state: BrowsersState; account: Account; view: View | null; onView: (v: View) => void; onOverlay: (open: boolean) => void; onNew: () => void }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [menu, setMenu] = useState(false)
   const [list, setList] = useState(false)
@@ -135,11 +135,8 @@ export function BrowserStrip({ state, account, view, onView, onOverlay }: { stat
             </Overlay>
           )}
         </div>
-        <button className="no-drag shrink-0 rounded-md p-1.5 text-muted hover:bg-panel" title={`${t.newBrowser} (Ctrl+Shift+N)`} aria-label={t.newBrowser} onClick={() => void api().browsers.create(t.browserName(state.browsers.length + 1))}>
+        <button className="no-drag shrink-0 rounded-md p-1.5 text-muted hover:bg-panel" title={`${t.newTab} (Ctrl+T)`} aria-label={t.newTab} onClick={onNew}>
           <Plus className="size-4" />
-        </button>
-        <button className="no-drag shrink-0 rounded-md p-1.5 text-muted hover:bg-panel" title={`${t.incognito}: ${t.incognitoHint}`} aria-label={t.incognito} onClick={() => void api().browsers.create(undefined, undefined, true)}>
-          <EyeOff className="size-4" />
         </button>
       </div>
       <div className="no-drag relative flex items-center gap-1 pr-1">
@@ -191,7 +188,7 @@ const MenuItem = ({ icon, label, onClick, danger }: { icon: ReactNode; label: st
 )
 
 /** Satır 2: seçili tarayıcının sekmeleri + not / ad / silme paneli. */
-export function BrowserBar({ browser, onOverlay }: { browser: BrowserInfo; onOverlay: (open: boolean) => void }) {
+export function BrowserBar({ browser, onOverlay, onNew }: { browser: BrowserInfo; onOverlay: (open: boolean) => void; onNew: () => void }) {
   const [dragId, setDragId] = useState<string | null>(null)
   const [panel, setPanel] = useState(false)
   return (
@@ -235,7 +232,7 @@ export function BrowserBar({ browser, onOverlay }: { browser: BrowserInfo; onOve
             </div>
           )
         })}
-        <button className="mb-1 shrink-0 rounded-md p-1.5 text-muted hover:bg-panel" aria-label={t.newTab} title={`${t.newTab} (Ctrl+T)`} onClick={() => void api().browsers.openTab(browser.id)}>
+        <button className="mb-1 shrink-0 rounded-md p-1.5 text-muted hover:bg-panel" aria-label={t.newTab} title={`${t.newTab} (Ctrl+T)`} onClick={onNew}>
           <Plus className="size-4" />
         </button>
       </div>

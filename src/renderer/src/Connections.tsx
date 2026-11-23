@@ -1,7 +1,8 @@
-import { ExternalLink, Loader2, LogIn, Monitor, Plus, RefreshCw, Search, Smartphone, Tag, Trash2 } from 'lucide-react'
+import { ExternalLink, FolderOpen, Loader2, LogIn, Monitor, Plus, RefreshCw, Search, Smartphone, Tag, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { Account, Layout, SocialAccount } from '../../shared/types.ts'
 import { PLATFORMS, PLATFORM_IDS, defaultLayout, platformOf } from '../../shared/platforms.ts'
+import { AccountContents } from './AccountContents.tsx'
 import { ConfirmButton } from './Confirm.tsx'
 import { api, errorText, useChrome, useConnections } from './hooks.ts'
 import { t } from './i18n.ts'
@@ -96,7 +97,7 @@ export function Connections({ account }: { account: Account }) {
             </h2>
             <div className="grid gap-2">
               {list.map((a) => (
-                <AccountCard key={a.id} account={a} groups={known} />
+                <AccountCard key={a.id} account={a} groups={known} syncedAt={state?.syncedAt ?? 0} />
               ))}
             </div>
           </section>
@@ -110,8 +111,10 @@ export function Connections({ account }: { account: Account }) {
   )
 }
 
-function AccountCard({ account: a, groups }: { account: SocialAccount; groups: string[] }) {
+function AccountCard({ account: a, groups, syncedAt }: { account: SocialAccount; groups: string[]; syncedAt: number }) {
   const [editing, setEditing] = useState(false)
+  /** Hesabın içerik penceresi: klasörleri, ekleme, üretme, klasörü açma. */
+  const [contents, setContents] = useState(false)
   const [busy, setBusy] = useState(false)
   const act = (p: Promise<{ ok: boolean; error?: string } | void>) => {
     setBusy(true)
@@ -167,6 +170,11 @@ function AccountCard({ account: a, groups }: { account: SocialAccount; groups: s
               </button>
             )}
             {a.here && (
+              <button className={button} onClick={() => setContents(true)}>
+                <FolderOpen className="size-3.5" /> {t.flows.content}
+              </button>
+            )}
+            {a.here && (
               <button className={iconButton} title={t.conn.open} aria-label={t.conn.open} onClick={() => act(api().connections.open(a.id))}>
                 <ExternalLink className="size-4" />
               </button>
@@ -179,6 +187,16 @@ function AccountCard({ account: a, groups }: { account: SocialAccount; groups: s
           </div>
         )}
       </div>
+      {contents && (
+        <Modal title={`@${a.handle}`} onClose={() => setContents(false)}>
+          <AccountContents account={a} syncedAt={syncedAt} />
+          <div className="mt-5 flex justify-end">
+            <button className={button} onClick={() => setContents(false)}>
+              {t.close}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

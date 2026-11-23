@@ -9,7 +9,8 @@ import { ChromeView } from './Chrome.tsx'
 import { Connect } from './Connect.tsx'
 import { Connections } from './Connections.tsx'
 import { Home } from './Home.tsx'
-import { api, useBrowsers, useChats, useChrome, useThumbnails } from './hooks.ts'
+import { Picker } from './Picker.tsx'
+import { api, useBrowsers, useChats, useChrome } from './hooks.ts'
 import { t } from './i18n.ts'
 import { Settings, type SectionId } from './Settings.tsx'
 import { Toaster } from './Toast.tsx'
@@ -106,7 +107,10 @@ function Sidebar({ account, view, onView }: { account: Account; view: View; onVi
  */
 function Shell({ account }: { account: Account }) {
   const state = useBrowsers()
-  const thumbs = useThumbnails()
+  /** Yeni sekme penceresi: hangi hesapta / tarayıcıda açılacağı seçilir. */
+  const [picking, setPicking] = useState(false)
+  const pick = useRef(() => setPicking(true)).current
+  const unpick = useRef(() => setPicking(false)).current
   const [view, setView] = useState<View>('home')
   const [section, setSection] = useState<SectionId>('account')
   const [overlays, setOverlays] = useState(0)
@@ -160,8 +164,8 @@ function Shell({ account }: { account: Account }) {
           setSection('history')
           setView('settings')
           void api().browsers.activate(null)
-        } else if (s === 'new-browser' || (s === 'new-tab' && !b)) void api().browsers.create(t.browserName(browsers.length + 1))
-        else if (s === 'new-tab' && b) void api().browsers.openTab(b.id)
+        } else if (s === 'new-browser') void api().browsers.create(t.browserName(browsers.length + 1))
+        else if (s === 'new-tab') setPicking(true)
         else if (s === 'close-tab' && b?.activeTabId) void api().browsers.closeTab(b.id, b.activeTabId)
         else if (s === 'focus-address') {
           address.current?.focus()
@@ -182,11 +186,12 @@ function Shell({ account }: { account: Account }) {
 
   return (
     <div className="flex h-full flex-col">
-      <BrowserStrip state={state} account={account} view={active ? null : view} onView={show} onOverlay={overlay} />
+      <BrowserStrip state={state} account={account} view={active ? null : view} onView={show} onOverlay={overlay} onNew={pick} />
+      {picking && <Picker state={state} onOverlay={overlay} onClose={unpick} />}
       {!active && <Announcements items={account.announcements} />}
       {active && (
         <>
-          <BrowserBar browser={active} onOverlay={overlay} />
+          <BrowserBar browser={active} onOverlay={overlay} onNew={pick} />
           <Toolbar browser={active} addressRef={address} downloadsOpen={downloadsOpen} setDownloadsOpen={setDownloadsOpen} onOverlay={overlay} />
           {finding && <FindBar key={active.activeTabId} onClose={() => setFinding(false)} />}
           <BookmarksBar />
@@ -195,7 +200,7 @@ function Shell({ account }: { account: Account }) {
       <div className="flex min-h-0 flex-1">
         {!active && <Sidebar account={account} view={view} onView={show} />}
         <div ref={area} className="relative min-h-0 min-w-0 flex-1">
-          {!active && view === 'home' && <Home state={state} thumbs={thumbs} focus={focus} />}
+          {!active && view === 'home' && <Home focus={focus} />}
           {!active && view === 'connections' && <Connections account={account} />}
           {!active && view === 'workflows' && <Workflows onOpenChat={openChat} />}
           {!active && view === 'chrome' && <ChromeView />}
