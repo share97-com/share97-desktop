@@ -453,7 +453,7 @@ export const NO_CONTENT = 'no content left in the folder'
  * okunur, çalışmanın kaydına yazılır. Kullanıcı "atlandı"yı nedeniyle görür.
  */
 export function skipReason(g: Graph, steps: Pick<RunStep, 'node' | 'type' | 'status' | 'detail'>[]): string {
-  if (steps.some((s) => s.type === 'queue' && s.detail === NO_CONTENT)) return 'No content left to share: add content to the workflow folder (or turn on "start over") and it runs at the next slot.'
+  if (steps.some((s) => s.type === 'queue' && s.detail === NO_CONTENT)) return 'No content left to share: add content to the account content folder (or turn on "start over") and it runs at the next slot.'
   const accounts = steps.filter((s) => isPublish(s.type))
   if (accounts.length) return `No content reached the account step (${[...new Set(accounts.map((s) => s.detail).filter(Boolean))].join('; ') || 'nothing to share'}).`
   const source = steps.find((s) => (s.type === 'queue' || s.type === 'generate') && s.status === 'ok')

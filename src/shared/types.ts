@@ -1,7 +1,7 @@
 /** Main, preload ve renderer arasında taşınan veri biçimleri (yalnız tipler, kod yok). */
 
 import type { Graph } from './workflow.ts'
-import type { ContentSettings, GenerateInput, LocalContent } from './contents.ts'
+import type { AccountContent, ContentSettings, GenerateInput } from './contents.ts'
 
 /** Share97 hesabı (`GET /api/v1/worker/me`): paket, USD bakiye ve bu cihaz (Worker). */
 export type Account = {
@@ -380,20 +380,22 @@ export type Api = {
     setAccounts(id: string, accountIds: string[]): Promise<void>
     /** Dosya seçme penceresi (görsel/video); dönüş: seçilen dosyaların yolları. */
     pickMedia(): Promise<string[]>
-    /** Yeni içerik klasörü: metin + seçilen dosyalar, durumu `pending`; dönüş: klasör numarası. */
-    addContent(id: string, caption: string, files: string[]): Promise<string>
-    /** İçeriği yeniden sıraya alır (`pending`). */
-    requeue(id: string, folder: string): Promise<void>
     rename(id: string, name: string): Promise<void>
-    /** Akışı sunucudan siler. Cihazdaki içerik klasörü durur (kullanıcının dosyaları). */
+    /** Akışı sunucudan siler. İçerik hesaplarda durur. */
     remove(id: string): Promise<void>
-    /** Yapay zekâ ile yeni içerik klasörleri (metin + isteğe bağlı görsel, durumu `pending`); dönüş: üretilen sayı. */
-    generate(id: string, input: GenerateInput): Promise<number>
-    /** Akışın bu cihazdaki içerik klasörleri (`workflow/<id>/contents/1, 2, 3…`) ve durumları. */
-    contents(id: string): Promise<LocalContent[]>
-    openContents(id: string): Promise<void>
     /** Bu cihaza atanmış, hesapları dolu, durdurulmuş hazır bir akış (şablondan). */
     createLocal(name: string, template: FlowTemplate): Promise<void>
+  }
+  /** Bu cihazdaki hesabın içerikleri (`accounts/<ad>/<platform>/contents/1, 2, 3…`); `accountId` hesap kimliği. */
+  contents: {
+    list(accountId: string): Promise<AccountContent[]>
+    /** Yeni içerik klasörü: metin + seçilen dosyalar, durumu `pending`; dönüş: klasör numarası. */
+    add(accountId: string, caption: string, files: string[]): Promise<string>
+    /** İçeriği yeniden sıraya alır (`pending`). */
+    requeue(accountId: string, folder: string): Promise<void>
+    /** Hesabın account.txt'i ile yapay zekâ ile yeni içerik klasörleri (metin + isteğe bağlı görsel, `pending`); dönüş: üretilen sayı. */
+    generate(accountId: string, input: GenerateInput): Promise<number>
+    open(accountId: string): Promise<void>
   }
   activity: {
     list(): Promise<ActivityEntry[]>

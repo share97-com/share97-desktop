@@ -1,6 +1,7 @@
 import type { ActivityEntry } from '../shared/types.ts'
 import { lastSync, localAccounts, syncAccounts } from './accounts.ts'
 import type { Agent } from './agent/index.ts'
+import { accountStep } from './account-contents.ts'
 import { autoStep } from './auto.ts'
 import { apiKey, server, ServerError } from './auth.ts'
 import { initRunner, inRunQueue, runNow, runnerBusy, schedule, stopFlow } from './runner.ts'
@@ -23,6 +24,7 @@ let polling = false
 /** Sitenin son eşitleme sürümü (`rev`): değişince akışlar ve hesaplar beklemeden eşitlenir. */
 let rev = ''
 let autoBusy = false
+let planBusy = false
 let running = 0
 const activity: ActivityEntry[] = []
 
@@ -66,6 +68,13 @@ async function tick() {
       void autoStep(agent, (fn) => inRunQueue(() => exclusive(fn)))
         .then((auto) => auto && log(auto.text, auto.ok ? 'ok' : 'error', auto.chatId), (e) => console.error('[auto]', (e as Error).message))
         .finally(() => (autoBusy = false))
+    }
+    // Hesapların paylaşım planı (`schedule.json`): zamanı gelen içerik hesabın tarayıcısında paylaşılır.
+    if (!planBusy) {
+      planBusy = true
+      void accountStep(agent, (fn) => inRunQueue(() => exclusive(fn)))
+        .then((r) => r && log(r.text, r.ok ? 'ok' : 'error', r.chatId), (e) => console.error('[plan]', (e as Error).message))
+        .finally(() => (planBusy = false))
     }
   } catch (e) {
     // 401'de `server` anahtarı siliyor ve uygulama girişe dönüyor; diğer hatalar bir sonraki yoklamada yeniden deneniyor.

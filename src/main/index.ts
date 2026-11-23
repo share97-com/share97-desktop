@@ -15,7 +15,8 @@ import * as auth from './auth.ts'
 import * as backup from './backup.ts'
 import * as bookmarks from './bookmarks.ts'
 import * as chrome from './chrome/index.ts'
-import { addContent, createLocalWorkflow, generateContents, listContents, openContents, requeueContent } from './contents.ts'
+import { addContent, createLocalWorkflow, generateContents, openContents, requeueContent } from './contents.ts'
+import { plannedContents } from './account-contents.ts'
 import { runNow } from './runner.ts'
 import { isFlowTemplate } from '../shared/types.ts'
 import * as downloads from './downloads.ts'
@@ -320,22 +321,27 @@ function registerIpc() {
     const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: [{ name: 'Media', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'mp4', 'mov', 'webm'] }] })
     return r.canceled ? [] : r.filePaths
   })
-  handle('workflows:addContent', (id, caption, files) => addContent(str(id, 200), flowName(str(id, 200)), str(caption, 20_000), Array.isArray(files) ? files.slice(0, 20).map((f) => str(f, 1000)) : []))
-  handle('workflows:requeue', (id, folder) => requeueContent(str(id, 200), str(folder, 9)))
   handle('workflows:rename', (id, name) => flow(id, { name: str(name, 120) }))
   handle('workflows:remove', async (id) => {
     await auth.server(`/api/v1/worker/workflows/${encodeURIComponent(str(id, 200))}`, { method: 'DELETE' })
     await accounts.syncAccounts()
   })
-  // Metin ve görsel üretimi dakikalar sürebilir; sonuç klasöre yazılır.
-  handle('workflows:generate', async (id, input) => (await generateContents(str(id, 200), flowName(str(id, 200)), input)).length)
-  const flowName = (id: string) => accounts.connectionsState().overview?.workflows.find((w) => w.id === id)?.name ?? id
   handle('workflows:createLocal', async (name, template) => {
     await createLocalWorkflow(str(name, 120), isFlowTemplate(template) ? template : 'post')
     await accounts.syncAccounts()
   })
-  handle('workflows:contents', (id) => listContents(str(id, 200)))
-  handle('workflows:openContents', (id) => openContents(str(id, 200), flowName(str(id, 200))))
+  // Hesap içerikleri: yalnız bu cihazda oturumu olan hesap.
+  const here = (id: unknown) => {
+    const l = accounts.localAccounts().find((x) => x.id === str(id, 200))
+    if (!l) throw new Error('This account is not signed in on this computer.')
+    return l
+  }
+  handle('contents:list', (id) => plannedContents(here(id)))
+  handle('contents:add', (id, caption, files) => addContent(here(id), str(caption, 20_000), Array.isArray(files) ? files.slice(0, 20).map((f) => str(f, 1000)) : []))
+  handle('contents:requeue', (id, folder) => requeueContent(here(id), str(folder, 9)))
+  // Metin ve görsel üretimi dakikalar sürebilir; sonuç hesabın klasörüne yazılır.
+  handle('contents:generate', async (id, input) => (await generateContents(here(id), input)).length)
+  handle('contents:open', (id) => openContents(here(id)))
 
   handle('activity:list', () => deviceActivity())
 

@@ -1,8 +1,9 @@
 /**
- * **Yerel içerik** — saf kısım (main, renderer ve testler okuyor). Akışların içeriği yalnız cihazda
- * duruyor (sitede içerik alanı yok). Bu cihaza atanmış bir akışın klasörü:
- * `<çalışma klasörü>/workflow/<akış kimliği>/contents/1, 2, 3…`. Her numaralı klasör bir içerik:
- * bir metin dosyası (açıklama), görseller ya da videolar ve içeriğin durumu `status.txt`.
+ * **Yerel içerik** — saf kısım (main, renderer ve testler okuyor). İçerik akışta değil **hesapta** durur, yalnız
+ * cihazda (sitede içerik alanı yok). Bu cihazdaki her hesabın klasörü:
+ * `<çalışma klasörü>/accounts/<kullanıcı adı>/<platform>/contents/1, 2, 3…`. Her numaralı klasör bir içerik:
+ * bir metin dosyası (açıklama), görseller ya da videolar ve içeriğin durumu `status.txt`. Akışta içerik bir
+ * düğümdür ("Hesap içeriği" `queue`, `generate`): düğümde seçilen hesabın klasörünü kullanır.
  *
  * Durumlar: `pending` paylaşılmayı bekliyor (dosya yoksa da böyle) · `publishing` akışa verildi, yayın
  * sürüyor · `published` paylaşıldı, bir daha alınmaz · `failed` yayın düştü (yeniden denemek için
@@ -17,6 +18,8 @@ export type ContentSettings = { order: 'sequential' | 'random'; repeat: boolean 
 export type LocalMedia = { file: string; kind: 'image' | 'video' }
 /** `note`: `status.txt`in ikinci satırı (tarih, gönderinin adresi ya da hata). */
 export type LocalContent = { folder: string; caption: string; media: LocalMedia[]; status: ContentStatus; note: string; warnings: ContentWarning[] }
+/** Hesabın içeriği ve paylaşım planındaki zamanı (`at`, ISO; plan yoksa ya da bekliyor değilse `null`). */
+export type AccountContent = LocalContent & { at: string | null }
 
 /** İçerik klasörü olan akış mı (`queue` ya da `generate` düğümü): klasörü kurulur, ekranda içerik bölümü görünür. Görev akışında (yalnız agent) klasör yok. */
 export const usesContents = (nodes: string[]) => nodes.includes('queue') || nodes.includes('generate')
@@ -70,14 +73,8 @@ export function stalePublishing(i: Pick<LocalContent, 'status' | 'note'>, now = 
   return !(now - at < STALE_PUBLISHING_MS)
 }
 
-/** Örnek içeriğin (`1` numaralı klasör) `status.txt` notu. Örnek `published` durur ve hiç paylaşılmaz: tekrar açıkken de. */
-export const EXAMPLE_NOTE = 'example content'
-export const isExample = (i: Pick<LocalContent, 'note'>) => i.note.endsWith(EXAMPLE_NOTE)
-
 /** İçerik klasörünün adı: yalnız rakam (`1`, `2`, `12`). */
 export const isContentFolder = (name: string) => /^\d{1,9}$/.test(name)
-/** Akış kimliği klasör adı oluyor: yol parçası taşıyamaz. */
-export const isWorkflowId = (id: string) => /^[\w-]{1,64}$/.test(id)
 
 /** `status.txt`: ilk satır durum, ikinci satır not. Boş ya da tanınmayan durum `pending`. */
 export function parseStatus(text: string): { status: ContentStatus; note: string } {
@@ -90,13 +87,13 @@ export const statusText = (status: ContentStatus, note = '') => (note ? `${statu
 
 /**
  * Akışa verilecek içerik: `pending` olanlardan sıradaki (klasör numarasına göre) ya da rastgele biri.
- * Bekleyen kalmadıysa ve `repeat` açıksa paylaşılmış olanlar (örnek hariç) baştan başlar (`restart`: onların
+ * Bekleyen kalmadıysa ve `repeat` açıksa paylaşılmış olanlar baştan başlar (`restart`: onların
  * `status.txt`i `pending`e çekilmeli). `items` klasör numarasına göre sıralı gelmeli.
  */
 export function pickContent(items: LocalContent[], o: Pick<ContentSettings, 'order' | 'repeat'>, random = Math.random): { pick: LocalContent | null; restart: boolean } {
   let pool = items.filter((i) => i.status === 'pending')
   const restart = !pool.length && o.repeat
-  if (restart) pool = items.filter((i) => i.status === 'published' && !isExample(i))
+  if (restart) pool = items.filter((i) => i.status === 'published')
   if (!pool.length) return { pick: null, restart: false }
   return { pick: pool[o.order === 'random' ? Math.floor(random() * pool.length) : 0], restart }
 }
@@ -118,7 +115,7 @@ export type GeneratedPost = { caption: string; imagePrompt: string }
  * Metin modeline giden mesajlar. Üretilen her içerik **özgün** olmalı: örnek içeriğin konusunu ve sesini
  * taşır ama onun kopyası ya da yeniden yazımı değildir, kendi başına paylaşılır. Yanıt JSON.
  */
-export function generationMessages(o: { count: number; topic: string; source: string | null }) {
+export function generationMessages(o: { count: number; topic: string; source: string | null; brief?: string }) {
   return [
     {
       role: 'system',
@@ -130,9 +127,10 @@ export function generationMessages(o: { count: number; topic: string; source: st
         'Every post is different from the others. Open with a strong hook, use short paragraphs and at most three emojis, end with a call to action.',
         'Never invent prices, statistics, quotes or claims about real people.',
         'Reply with JSON: {"posts": [{"caption": string, "imagePrompt": string}]}. imagePrompt is in English and describes one image for that post, with no text in it.',
+        ...(o.brief ? ["The account's brief (account.txt) follows. Follow its profile, content rules and prompt; write in its language unless the topic asks for another:", o.brief.slice(0, 6000)] : []),
       ].join('\n'),
     },
-    { role: 'user', content: [o.source ? `Reference post:\n${o.source.slice(0, 4000)}` : '', o.topic.trim() ? `Topic and instructions:\n${o.topic.trim().slice(0, 2000)}` : ''].filter(Boolean).join('\n\n') },
+    { role: 'user', content: [o.source ? `Reference post:\n${o.source.slice(0, 4000)}` : '', o.topic.trim() ? `Topic and instructions:\n${o.topic.trim().slice(0, 2000)}` : '', !o.source && !o.topic.trim() ? "Pick the topics yourself from the account brief's content pillars." : ''].filter(Boolean).join('\n\n') },
   ]
 }
 
@@ -152,3 +150,29 @@ export function parseGenerated(text: string, count: number): GeneratedPost[] {
 
 /** Sıradaki boş klasör numarası: var olanların en büyüğünün bir fazlası. */
 export const nextFolder = (folders: string[]) => String(Math.max(0, ...folders.filter(isContentFolder).map(Number)) + 1)
+
+/* ---------------- Hesap içerik planı ---------------- */
+
+export const MAX_PER_DAY = 12
+const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
+
+/** Günde `perDay` paylaşımın saatleri: 09:00–21:00 arasına eşit dağılır (1 → 15:00; 2 → 12:00, 18:00; 3 → 11:00, 15:00, 19:00). */
+export const dayTimes = (perDay: number) => Array.from({ length: perDay }, (_, i) => hhmm(Math.round(9 * 60 + (12 * 60 * (i + 0.5)) / perDay)))
+
+/**
+ * Hesabın içeriklerine tarih: klasör sırasıyla, `from`dan sonraki ilk yuvadan başlayıp her gün `times` saatlerinde birer
+ * içerik (cihazın saat dilimi). Dönüş: klasör → ISO zaman.
+ */
+export function planSlots(folders: string[], times: string[], from: Date): Record<string, string> {
+  const day = [...new Set(times.filter((t) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t)))].sort()
+  if (!day.length) throw new Error('No valid posting time (HH:MM).')
+  const out: Record<string, string> = {}
+  let i = 0
+  for (let d = 0; i < folders.length; d++)
+    for (const t of day) {
+      const [h, m] = t.split(':').map(Number)
+      const at = new Date(from.getFullYear(), from.getMonth(), from.getDate() + d, h, m)
+      if (at > from && i < folders.length) out[folders[i++]] = at.toISOString()
+    }
+  return out
+}

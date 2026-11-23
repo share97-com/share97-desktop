@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { contentWarnings, isPartial, resultNote, stalePublishing, generationMessages, isContentFolder, isWorkflowId, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type LocalContent } from './contents.ts'
+import { contentWarnings, isPartial, resultNote, stalePublishing, generationMessages, isContentFolder, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type LocalContent } from './contents.ts'
 
 const item = (folder: string, status: LocalContent['status']): LocalContent => ({ folder, caption: folder, media: [], status, note: '', warnings: [] })
 
@@ -23,13 +23,10 @@ test('sıradaki içerik: yalnız bekleyenler, sırayla ya da rastgele; paylaşı
   assert.equal(again.pick?.folder, '1')
   assert.equal(again.restart, true)
   assert.deepEqual(pickContent([], { order: 'random', repeat: true }), { pick: null, restart: false })
-  // Örnek içerik paylaşılmış sayılır ama baştan başlamaya girmez.
-  assert.equal(pickContent([{ ...item('1', 'published'), note: '2026-11-15 10:00 example content' }], { order: 'sequential', repeat: true }).pick, null)
 })
 
 test('klasör ve adres biçimleri klasörün dışına çıkamıyor', () => {
   assert.ok(isContentFolder('12') && !isContentFolder('1a') && !isContentFolder('..') && !isContentFolder(''))
-  assert.ok(isWorkflowId('cmabc123_x-1') && !isWorkflowId('../x') && !isWorkflowId('a/b'))
   assert.deepEqual(parseLocalUrl('local:3/a b.jpg'), { folder: '3', file: 'a b.jpg' })
   assert.equal(parseLocalUrl('local:3/../x.jpg'), null)
   assert.equal(parseLocalUrl('local:../3/x.jpg'), null)
@@ -71,4 +68,15 @@ test('publishing durumunda takılan içerik: damgası 90 dakikadan eski ya da yo
 test('içerik uyarıları', () => {
   assert.deepEqual(contentWarnings({ caption: 10, media: 1, texts: 1, dirs: 0 }), [])
   assert.deepEqual(contentWarnings({ caption: 5001, media: 21, texts: 2, dirs: 1 }), ['long-text', 'many-files', 'many-texts', 'subfolders'])
+})
+
+test('hesap planı: günde N paylaşım gün içine dağılır, geçmiş yuva atlanır', async () => {
+  const { dayTimes, planSlots } = await import('./contents.ts')
+  assert.deepEqual(dayTimes(2), ['12:00', '18:00'])
+  assert.deepEqual(dayTimes(3), ['11:00', '15:00', '19:00'])
+  const from = new Date(2026, 10, 23, 13, 0)
+  const plan = planSlots(['2', '3', '4', '5'], dayTimes(2), from)
+  const local = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${d.getHours()}` }
+  assert.deepEqual(Object.values(plan).map(local), ['23 18', '24 12', '24 18', '25 12'])
+  assert.throws(() => planSlots(['2'], ['25:00'], from))
 })

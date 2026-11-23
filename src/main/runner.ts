@@ -21,8 +21,8 @@ import { L } from './strings.ts'
  */
 
 type Flow = Overview['workflows'][number]
-/** Akışta akan öğe: cihazdaki bir içerik klasörü. `postId`: sunucudaki paylaşım kaydı (ilk hesaptan sonra). */
-type Item = { folder: string; caption: string; firstComment: string; media: LocalMedia[]; generated: boolean; postId?: string }
+/** Akışta akan öğe: bir hesabın içerik klasörü (`source`: içerik düğümünün hesabı). `postId`: sunucudaki paylaşım kaydı (ilk hesaptan sonra). */
+type Item = { source: LocalAccount; folder: string; caption: string; firstComment: string; media: LocalMedia[]; generated: boolean; postId?: string }
 type Out = WalkOut<Item>
 export type RunOutcome = { status: 'success' | 'failed' | 'skipped' | 'duplicate'; error: string | null }
 
@@ -60,8 +60,8 @@ type Run = {
   chatIds: string[]
   /** Hesap → bu çalışmadaki sohbeti: aynı hesabın sonraki adımları (sohbet mesajı düğümleri) aynı sohbete yazılıyor. */
   chats: Map<string, string>
-  /** Alınan içerik klasörleri → bir hesabın sonucu `status.txt`e yazıldı mı. Yazılmayan çalışma bitince `pending`e döner. */
-  taken: Map<string, boolean>
+  /** Alınan içerik klasörleri (`<hesap>/<klasör>`) → bir hesabın sonucu `status.txt`e yazıldı mı. Yazılmayan çalışma bitince `pending`e döner. */
+  taken: Map<string, { source: LocalAccount; folder: string; touched: boolean }>
   /** Bu çalışmanın iş için açtığı (önceden kapalı) tarayıcılar: çalışma başarıyla bitince kapanır. */
   opened: Set<string>
   /** Elle başlatıldı ("Şimdi çalıştır"): sohbet ekranı işin sohbetinde açılır. */
@@ -103,6 +103,16 @@ function envOf(item: Item | null, timezone: string): ExprEnv {
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
+const takenKey = (i: Pick<Item, 'source' | 'folder'>) => `${i.source.id}/${i.folder}`
+
+/** İçerik düğümünün hesabı: içerik o hesabın bu cihazdaki klasöründe. */
+function contentAccount(id: string): LocalAccount {
+  if (!id) throw new Error('content: choose the account whose content folder this step uses')
+  const l = localAccounts().find((x) => x.id === id)
+  if (l) return l
+  const known = connectionsState().accounts.find((a) => a.id === id)
+  throw new Error(known ? `content: @${known.handle} is not signed in on this device, so its content folder is not here` : 'content: the account of this step was removed')
+}
 
 /** Etiketleri açıklamanın sonuna ekler; açıklamada zaten olan eklenmez. */
 function appendHashtags(caption: string, tags: string[]) {
@@ -135,12 +145,12 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
     media: item?.media.map((m) => ({ url: `local:${item.folder}/${m.file}`, kind: m.kind })),
     firstComment: o.firstComment || item?.firstComment || undefined,
     instruction: o.instruction,
-    local: item ? { workflowId: r.flow.id, folder: item.folder } : undefined,
+    local: item ? { accountId: item.source.id, folder: item.folder } : undefined,
   }
   const result = async (ok: boolean, detail: string) => {
     if (!item) return
-    r.taken.set(item.folder, true)
-    await finishContent(r.flow.id, item.folder, account.handle, ok, detail)
+    r.taken.set(takenKey(item), { source: item.source, folder: item.folder, touched: true })
+    await finishContent(item.source, item.folder, account.handle, ok, detail)
   }
   const invalid = checkPost(account.platform, post)
   if (invalid) {
@@ -155,8 +165,8 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
   }
   const browserId = agentBrowser(account)!
   const label = platformOf(account.platform)?.label ?? account.platform
-  const files = item ? contentFiles(r.flow.id, item.folder, (post.media ?? []).map((m) => m.url)) : []
-  const prompt = jobPrompt({ platform: account.platform, handle: account.handle, browserId, post, files, folder: item ? contentsRel(r.flow.id, item.folder) : undefined })
+  const files = item ? contentFiles(item.source, item.folder, (post.media ?? []).map((m) => m.url)) : []
+  const prompt = jobPrompt({ platform: account.platform, handle: account.handle, browserId, post, files, folder: item ? contentsRel(item.source, item.folder) : undefined })
   // Hata çift paylaşım riski taşır: iş bir kez denenir, sonucu ne olursa olsun kayda geçer.
   // Takılan iş sırayı sonsuza dek tutmasın: süre dolunca sohbeti durdurulur, iş düşmüş sayılır.
   let jobChat = ''
@@ -228,26 +238,30 @@ async function execute(r: Run, node: GraphNode, items: Item[]): Promise<Out> {
     }
 
     case 'queue': {
+      // Hesap içeriği: düğümde seçilen hesabın klasöründen sıradaki içerik.
       if (items.length) return { status: 'skip', detail: 'already has items' }
-      const c = await takeContent(r.flow.id, r.flow.content)
+      const source = contentAccount(str(d.accountId))
+      const c = await takeContent(source, r.flow.content)
       if (!c) {
-        notify(L().noContent(r.flow.name))
+        notify(L().noContent(`@${source.handle}`))
         return { status: 'skip', detail: NO_CONTENT }
       }
-      r.taken.set(c.folder, false)
-      return { status: 'ok', detail: `${c.folder}: ${c.caption.slice(0, 70)}`, items: [{ ...c, firstComment: '', generated: false }] }
+      const item: Item = { ...c, source, firstComment: '', generated: false }
+      r.taken.set(takenKey(item), { source, folder: c.folder, touched: false })
+      return { status: 'ok', detail: `@${source.handle} ${c.folder}: ${c.caption.slice(0, 70)}`, items: [item] }
     }
 
     case 'generate': {
       if (d.onlyWhenEmpty === true && items.length) return { status: 'skip', detail: 'queue had items' }
-      if (!str(d.topic).trim()) throw new Error('generate: topic is empty')
-      // Üretilen paylaşım akışın klasörüne yeni bir içerik olarak yazılır (metin + istenirse görsel), sonra paylaşılır.
-      const [folder] = await generateContents(r.flow.id, r.flow.name, { from: null, topic: interpolate(str(d.topic), envOf(items[0] ?? null, tz)), count: 1, withImage: d.withImage !== false })
-      const c = (await listContents(r.flow.id)).find((i) => i.folder === folder)
+      // Hesaptan üretim: hesabın account.txt'i ile (konu boşsa onun içerik başlıklarından), hesabın klasörüne yeni bir içerik.
+      const source = contentAccount(str(d.accountId))
+      const [folder] = await generateContents(source, { from: null, topic: interpolate(str(d.topic), envOf(items[0] ?? null, tz)), count: 1, withImage: d.withImage !== false })
+      const c = (await listContents(source)).find((i) => i.folder === folder)
       if (!c) throw new Error('generate: the model returned no usable post')
-      await setContentStatus(r.flow.id, folder, 'publishing')
-      r.taken.set(folder, false)
-      return { status: 'ok', detail: c.caption.slice(0, 80), items: [{ folder, caption: c.caption, media: c.media, firstComment: '', generated: true }] }
+      await setContentStatus(source, folder, 'publishing')
+      const item: Item = { source, folder, caption: c.caption, media: c.media, firstComment: '', generated: true }
+      r.taken.set(takenKey(item), { source, folder, touched: false })
+      return { status: 'ok', detail: `@${source.handle} ${c.caption.slice(0, 80)}`, items: [item] }
     }
 
     case 'hashtags':
@@ -427,7 +441,7 @@ export async function runFlow(given: Flow, slot: number, trigger: string, manual
     const error = r.halt.stopped ? STOPPED : (failure ?? (status === 'skipped' ? skipReason(flow.graph, r.steps) : null))
     if (status === 'success') for (const id of r.opened) closeAfterJob(id)
     // Hiçbir hesaba ulaşmayan içerik yanmaz: yeniden sıraya döner, nedeni notunda.
-    for (const [folder, touched] of r.taken) if (!touched) await setContentStatus(flow.id, folder, 'pending', `not shared: ${(error ?? 'the run ended before an account step').slice(0, 300)}`).catch(() => {})
+    for (const t of r.taken.values()) if (!t.touched) await setContentStatus(t.source, t.folder, 'pending', `not shared: ${(error ?? 'the run ended before an account step').slice(0, 300)}`).catch(() => {})
     // Çalışmanın sohbet süreçleri kayda: geçmiş bu sohbetlere bağlanır.
     if (r.steps[0]) r.steps[0] = { ...r.steps[0], output: { ...r.steps[0].output, chatIds: r.chatIds } }
     await save(r, { status, error: error?.slice(0, 2000) })

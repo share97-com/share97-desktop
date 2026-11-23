@@ -25,6 +25,7 @@ mock.module('./auth.ts', {
   namedExports: {
     ServerError,
     refresh: async () => ({}),
+    apiKey: () => 'key',
     server: async (path: string, init: { method?: string; body?: Record<string, unknown> } = {}) => {
       calls.push({ path, method: init.method, body: init.body })
       if (path === '/api/v1/worker/runs') {
@@ -51,7 +52,7 @@ mock.module('./accounts.ts', {
 })
 mock.module('./auto.ts', { namedExports: { IMAGE_MODEL: 'image-model' } })
 mock.module('./settings.ts', { namedExports: { DEFAULT_MODEL: 'chat-model', settings: () => ({ chatModel: null, imageModel: null }) } })
-mock.module('./gateway.ts', { namedExports: { apiJson: async () => ({}) } })
+mock.module('./gateway.ts', { namedExports: { AI_BASE: 'http://ai', apiJson: async () => ({}) } })
 
 const contents = await import('./contents.ts')
 const runner = await import('./runner.ts')
@@ -79,24 +80,25 @@ runner.initRunner({
 
 const node = (id: string, type: string, data: Record<string, unknown> = {}) => ({ id, type, data }) as Graph['nodes'][number]
 const flow = (id: string, graph: Graph) => ({ id, name: `Flow ${id}`, slug: id, active: true, workerId: 'me', timezone: 'UTC', content: { order: 'sequential' as const, repeat: false }, lastRunAt: null, nodes: graph.nodes.map((n) => n.type), schedule: null, accountIds: ['acc1'], instruction: null, graph })
-const status = (id: string, folder: string) => readFileSync(join(home, 'share97-desktop', 'workflow', id, 'contents', folder, 'status.txt'), 'utf8').split('\n')
+const shop = { id: 'acc1', platform: 'instagram', handle: 'shop' }
+const status = (folder: string) => readFileSync(join(home, 'share97-desktop', 'accounts', 'shop', 'instagram', 'contents', folder, 'status.txt'), 'utf8').split('\n')
 const last = (path: RegExp) => calls.filter((c) => path.test(c.path)).at(-1)!
 
 test.after(() => rmSync(home, { recursive: true, force: true }))
 
-test('paylaşım akışı: içerik klasörden alınır, agent hesabın tarayıcısında yayınlar, iş sohbette açılır ve kayda geçer', async () => {
-  const w = flow('wf1', { nodes: [node('t1', 'trigger'), node('q1', 'queue'), node('ig1', 'instagram', { accountId: 'acc1' })], edges: [{ source: 't1', target: 'q1' }, { source: 'q1', target: 'ig1' }] })
-  await contents.addContent('wf1', w.name, 'Merhaba dünya', [join(import.meta.dirname, '../../resources/examples/image.jpg')])
+test('paylaşım akışı: içerik hesabın klasöründen alınır, agent hesabın tarayıcısında yayınlar, iş sohbette açılır ve kayda geçer', async () => {
+  const w = flow('wf1', { nodes: [node('t1', 'trigger'), node('q1', 'queue', { accountId: 'acc1' }), node('ig1', 'instagram', { accountId: 'acc1' })], edges: [{ source: 't1', target: 'q1' }, { source: 'q1', target: 'ig1' }] })
+  await contents.addContent(shop, 'Merhaba dünya', [join(import.meta.dirname, '../../resources/examples/image.jpg')])
   const out = await runner.runFlow(w as never, 60_000, 't1')
   assert.deepEqual(out, { status: 'success', error: null })
   assert.equal(tasks.length, 1)
   assert.match(tasks[0].prompt, /Merhaba dünya/)
-  assert.match(tasks[0].prompt, /workflow\/wf1\/contents\/2\/image\.jpg/)
+  assert.match(tasks[0].prompt, /accounts\/shop\/instagram\/contents\/1\/image\.jpg/)
   assert.equal(tasks[0].browserId, 'b1', 'agent hesabın tarayıcısına kilitli')
   assert.deepEqual(opened, ['chat1'], 'iş başlayınca sohbet ekranı açılır')
-  assert.equal(status('wf1', '2')[0], 'published')
+  assert.equal(status('1')[0], 'published')
   const pub = last(/publications$/).body as { accountId: string; post: { folder: string; media: unknown[] } }
-  assert.deepEqual([pub.accountId, pub.post.folder, pub.post.media.length], ['acc1', '2', 1])
+  assert.deepEqual([pub.accountId, pub.post.folder, pub.post.media.length], ['acc1', '1', 1])
   const done = last(/runs\/run1$/).body as { status: string; steps: { node: string; status: string; output?: { chatIds?: string[] } }[] }
   assert.equal(done.status, 'success')
   assert.deepEqual(done.steps.map((s) => `${s.node}:${s.status}`), ['t1:ok', 'q1:ok', 'ig1:ok'])
@@ -111,16 +113,32 @@ test('paylaşım akışı: içerik klasörden alınır, agent hesabın tarayıc�
 
 test('içerik hesaba yalnız hata kolundan bağlıysa çalışma nedeniyle atlanır ve içerik yanmaz', async () => {
   // Canlıda görülen graf: kuyruğun tek çıkışı `error` kolu.
-  const w = flow('wf2', { nodes: [node('t1', 'trigger'), node('q1', 'queue'), node('ig1', 'instagram', { accountId: 'acc1' })], edges: [{ source: 't1', target: 'q1' }, { source: 'q1', target: 'ig1', sourceHandle: 'error' }] })
-  await contents.addContent('wf2', w.name, 'İçerik', [])
+  const w = flow('wf2', { nodes: [node('t1', 'trigger'), node('q1', 'queue', { accountId: 'acc1' }), node('ig1', 'instagram', { accountId: 'acc1' })], edges: [{ source: 't1', target: 'q1' }, { source: 'q1', target: 'ig1', sourceHandle: 'error' }] })
+  await contents.addContent(shop, 'İçerik', [])
   const before = tasks.length
   const out = await runner.runFlow(w as never, 60_000, 't1')
   assert.equal(out.status, 'skipped')
   assert.match(out.error ?? '', /error output/)
   assert.equal(tasks.length, before, 'hesapta iş yapılmadı')
-  assert.equal(status('wf2', '2')[0], 'pending', 'içerik yeniden sırada')
-  assert.match(status('wf2', '2')[1], /not shared/)
+  assert.equal(status('2')[0], 'pending', 'içerik yeniden sırada')
+  assert.match(status('2')[1], /not shared/)
   assert.match(String(last(/runs\/run\d+$/).body!.error), /error output/, 'neden sunucudaki kayda yazıldı')
+})
+
+test('hesap içeriği agent düğümüne bağlanır: içeriğin metni ve dosyaları talimatla agente gider', async () => {
+  // Önceki testten bekleyen içerik kalmasın: sıradaki bu içerik olsun.
+  for (const i of await contents.listContents(shop)) if (i.status === 'pending') await contents.setContentStatus(shop, i.folder, 'published')
+  const folder = await contents.addContent(shop, 'Story metni', [join(import.meta.dirname, '../../resources/examples/image.jpg')])
+  const w = flow('wfa', { nodes: [node('t1', 'trigger'), node('q1', 'queue', { accountId: 'acc1' }), node('a1', 'agent', { accountId: 'acc1', prompt: 'Share {{caption}} as a story' })], edges: [{ source: 't1', target: 'q1' }, { source: 'q1', target: 'a1' }] })
+  taskResult = { ok: true, summary: 'story shared' }
+  assert.deepEqual(await runner.runFlow(w as never, 60_000, ''), { status: 'success', error: null })
+  const prompt = tasks.at(-1)!.prompt
+  assert.match(prompt, /Share Story metni as a story/)
+  assert.match(prompt, new RegExp(`accounts/shop/instagram/contents/${folder}/image\\.jpg`))
+  assert.equal(status(folder)[0], 'published')
+  // Hesabı seçilmemiş içerik düğümü nedeniyle düşer.
+  const none = flow('wfb', { nodes: [node('t1', 'trigger'), node('q1', 'queue'), node('a1', 'agent', { accountId: 'acc1', prompt: 'x' })], edges: [{ source: 't1', target: 'q1' }, { source: 'q1', target: 'a1' }] })
+  assert.match((await runner.runFlow(none as never, 60_000, '')).error ?? '', /choose the account/)
 })
 
 test('agent düğümü: içerik olmadan görevi hesabın tarayıcısında yapar; düşen iş çalışmayı düşürür', async () => {

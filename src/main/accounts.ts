@@ -79,9 +79,10 @@ export async function syncAccounts() {
   try {
     const [{ accounts }, ov] = await Promise.all([server<{ accounts: Remote[] }>('/api/v1/worker/accounts'), server<Overview>('/api/v1/worker/overview')])
     remote = accounts
-    // Akışlar da eşitleniyor: içeriği bu cihazda duran akışların klasörleri kurulur; ilk seferde örnek akış açılır.
-    overview = (await syncContents(ov)) ? await server<Overview>('/api/v1/worker/overview') : ov
-    if (overview !== ov) await syncContents(overview)
+    // Bu cihazdaki her hesabın içerik alanı kurulur (`accounts/<ad>/<platform>/contents`); ilk seferde örnek akış açılır.
+    const here = saved().locals.filter((l) => accounts.some((a) => a.id === l.id))
+    overview = (await syncContents(ov, here)) ? await server<Overview>('/api/v1/worker/overview') : ov
+    if (overview !== ov) await syncContents(overview, here)
     error = null
     syncedAt = Date.now()
     for (const gone of saved().locals.filter((l) => !accounts.some((a) => a.id === l.id))) await forget(gone)

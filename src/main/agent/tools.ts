@@ -11,12 +11,13 @@ import { toUrl } from '../address.ts'
 import { api, apiJson, models } from '../gateway.ts'
 import { pcmToWav, rateOf } from '../audio.ts'
 import { AGENT_SETTLE_MS, type Browsers } from '../browsers.ts'
-import { connectionsState, syncAccounts } from '../accounts.ts'
+import { agentBrowser, connectionsState, localAccounts, syncAccounts } from '../accounts.ts'
 import { server } from '../auth.ts'
 import { runNow } from '../runner.ts'
 import { FLOW_TEMPLATES } from '../../shared/types.ts'
 import * as bookmarks from '../bookmarks.ts'
-import { addContent, createLocalWorkflow, listContents, requeueContent } from '../contents.ts'
+import { accountProfile, accountRel, addContent, contentFiles, contentsRel, createLocalWorkflow, listContents, requeueContent } from '../contents.ts'
+import { findAccount, markScheduled, planAccount, plannedContents } from '../account-contents.ts'
 import type { ChromeBridge } from '../chrome/bridge.ts'
 import { chromeDriver } from '../chrome/driver.ts'
 import * as passwords from '../passwords.ts'
@@ -27,8 +28,8 @@ import { FORMATS, render, type Report } from '../reports.ts'
 import * as ws from '../workspace.ts'
 import { deleteLesson, saveLesson } from './lesson-store.ts'
 import { MAX_LESSON } from './lessons.ts'
-import { lockProblem } from '../../shared/platforms.ts'
-import { usesContents } from '../../shared/contents.ts'
+import { lockProblem, schedulerNote } from '../../shared/platforms.ts'
+import { MAX_PER_DAY } from '../../shared/contents.ts'
 import type { ChatData } from './memory.ts'
 import * as page from './page.ts'
 import type { Driver } from './page.ts'
@@ -997,7 +998,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
   const mediaTools = [
     def(
       'list_chat_media',
-      'List the media and files of THIS chat: images, videos and audio you generated here (generate_image / generate_video / generate_speech), downloads, and files the user attached or dropped into the chat, oldest first. Use it to find the paths before look_at_images, upload_files, add_workflow_content or reference_images. "the image", "these photos", "the video above" mean these.',
+      'List the media and files of THIS chat: images, videos and audio you generated here (generate_image / generate_video / generate_speech), downloads, and files the user attached or dropped into the chat, oldest first. Use it to find the paths before look_at_images, upload_files, add_account_content or reference_images. "the image", "these photos", "the video above" mean these.',
       z.object({ kind: z.enum(['image', 'video', 'audio', 'document']).optional() }),
       async (a) => {
         const list = ctx.media().filter((m) => !a.kind || m.kind === a.kind)
@@ -1281,7 +1282,7 @@ ${await ctx.vision(a.question, images)}`
   const workflowTools = [
     def(
       'create_workflow',
-      "Create a Share97 workflow on this computer so a job repeats by itself on a schedule. Use it whenever the user wants something done regularly or at set times (\"every day\", \"every 3 hours\", \"her gün\", \"belirli aralıklarla\"), instead of doing it only once now. Templates: task = the AI agent does the instruction on the account (reply, follow, like, collect data, post ...); reply / follow = ready-made tasks (pass instruction to replace their text); post = shares the next content of the workflow's folder (add contents with add_workflow_content); aiPost = writes a new post about the instruction's topic on every run. The workflow uses every account signed in on this computer. It is created switched off unless active is true: switch it on only when the user asked for it to start.",
+      "Create a Share97 workflow on this computer so a job repeats by itself on a schedule. Use it whenever the user wants something done regularly or at set times (\"every day\", \"every 3 hours\", \"her gün\", \"belirli aralıklarla\"), instead of doing it only once now. Templates: task = the AI agent does the instruction on the account (reply, follow, like, collect data, post ...); reply / follow = ready-made tasks (pass instruction to replace their text); post = each account shares the next content of its own contents folder (add contents with add_account_content); aiPost = writes a new post for each account from its account.txt on every run. The workflow uses every account signed in on this computer. It is created switched off unless active is true: switch it on only when the user asked for it to start.",
       z.object({
         name: z.string().min(1).max(120),
         template: z.enum(FLOW_TEMPLATES),
@@ -1318,44 +1319,94 @@ ${await ctx.vision(a.question, images)}`
       void runNow(w.id).catch(() => {})
       return `"${w.name}" started. It runs as its own chat; the result is logged in the Workflows screen.`
     }),
-    def('list_workflows', "List the user's Share97 workflows: id, name, active, schedule, the accounts it shares to, and whether its content folder is on this computer (here) with how many contents are waiting.", z.object({}), async () => {
+    def('list_workflows', "List the user's Share97 workflows: id, name, active, schedule, the accounts it shares to, whether it runs on this computer (here), and the accounts whose contents folders it takes content from, with how many contents wait there.", z.object({}), async () => {
       const s = connectionsState()
       const ov = s.overview
       if (!ov) throw new Error('Workflows are not synced yet. Try again in a moment.')
       return JSON.stringify(
         await Promise.all(
           ov.workflows.map(async (w) => {
-            const here = w.workerId === ov.me
-            return { id: w.id, name: w.name, active: w.active, schedule: w.schedule, timezone: w.timezone, instruction: w.instruction ?? undefined, accounts: s.accounts.filter((a) => w.accountIds.includes(a.id)).map((a) => `@${a.handle} (${a.platform})`), here, waiting: here && usesContents(w.nodes) ? (await listContents(w.id)).filter((i) => i.status === 'pending').length : null }
+            const sources = [...new Set(w.graph.nodes.filter((n) => n.type === 'queue' || n.type === 'generate').map((n) => String((n.data as { accountId?: unknown }).accountId ?? '')))]
+            const content = await Promise.all(
+              sources.map(async (id) => {
+                const l = localAccounts().find((x) => x.id === id)
+                return { account: `@${s.accounts.find((a) => a.id === id)?.handle ?? '?'}`, waiting: l ? (await listContents(l)).filter((i) => i.status === 'pending').length : 'on another device' }
+              }),
+            )
+            return { id: w.id, name: w.name, active: w.active, schedule: w.schedule, timezone: w.timezone, instruction: w.instruction ?? undefined, accounts: s.accounts.filter((a) => w.accountIds.includes(a.id)).map((a) => `@${a.handle} (${a.platform})`), here: w.workerId === ov.me, content }
           }),
         ),
         null,
         1,
       )
     }),
-    def('list_workflow_contents', "List the content folders (1, 2, 3 ...) of a workflow on this computer: state (pending, publishing, published, failed), note, text and files. Folder 1 is the built-in example and is never shared.", z.object({ workflow_id: z.string() }), async (a) =>
-      JSON.stringify(
-        (await listContents(localFlow(a.workflow_id).id)).map((i) => ({ folder: i.folder, status: i.status, note: i.note, caption: i.caption.slice(0, 600), files: i.media.map((m) => m.file), warnings: i.warnings })),
-        null,
-        1,
-      ),
-    ),
+  ]
+
+  /** Hesap içerikleri: `accounts/<ad>/<platform>/account.txt` ve `contents/1, 2…`; plan `schedule.json`. */
+  const who = { handle: z.string().describe('The account handle (@name) as listed under Social accounts.'), platform: z.string().optional().describe('Only when the same handle is on several platforms.') }
+  const accountTools = [
     def(
-      'add_workflow_content',
-      'Add one content to a workflow on this computer: it becomes the next numbered folder (content.txt + image.jpg / video.mp4 ...) with state pending, and the workflow shares it when its turn comes. files are workspace paths of images or videos (e.g. from generate_image); they are copied. Call once per content. Check list_workflows first: platforms like Instagram, TikTok, YouTube and Pinterest need an image or video.',
-      z.object({ workflow_id: z.string(), caption: z.string().max(5000).describe('The post text, exactly as it should be published.'), files: z.array(z.string()).max(20).optional().describe('Workspace paths of images/videos to upload with the post.') }),
+      'account_profile',
+      "Read the account's account.txt (profile, content rules, and the prompt for writing its posts). If it does not exist yet, it is written now with LangChain from profile_notes: before that, open the account's profile in its browser and pass what you see (bio, recent posts, audience, language) as profile_notes. Pass content to replace the file when the user corrects it. Read it before writing or planning content for an account.",
+      z.object({ ...who, profile_notes: z.string().max(6000).optional(), content: z.string().max(20000).optional().describe('New full text of account.txt.') }),
       async (a) => {
-        const w = localFlow(a.workflow_id)
+        const l = findAccount(a.handle, a.platform)
+        const remote = connectionsState().accounts.find((x) => x.id === l.id)
+        const r = await accountProfile(l, { notes: a.profile_notes, content: a.content, name: remote?.name, group: remote?.group })
+        return `${accountRel(l)}/account.txt${r.created ? ' (just written)' : ''}:\n${r.text}`
+      },
+    ),
+    def('list_account_contents', 'List the content folders (1, 2, 3 ...) of an account on this computer: state (pending, publishing, published, failed), planned time (at), note, text and files.', z.object(who), async (a) => {
+      const l = findAccount(a.handle, a.platform)
+      return JSON.stringify({ folder: contentsRel(l), contents: (await plannedContents(l)).map((i) => ({ folder: i.folder, status: i.status, at: i.at, note: i.note, caption: i.caption.slice(0, 600), files: i.media.map((m) => m.file), warnings: i.warnings })) }, null, 1)
+    }),
+    def(
+      'add_account_content',
+      'Add one content to an account\'s contents folder: it becomes the next numbered folder (content.txt + image.png/jpg and/or video.mp4) with state pending. Workflows take it through their "Account content" step and plan_account_posts spreads it over the days. files are workspace paths of images or videos (generate_image / generate_video output); they are copied. Call once per content. Instagram, TikTok, YouTube and Pinterest need an image or video. Write the caption following the account\'s account.txt.',
+      z.object({ ...who, caption: z.string().max(5000).describe('The post text, exactly as it should be published.'), files: z.array(z.string()).max(20).optional().describe('Workspace paths of images/videos to upload with the post.') }),
+      async (a) => {
+        const l = findAccount(a.handle, a.platform)
         const files = await Promise.all((a.files ?? []).map((f) => ws.existing(f)))
         const bad = files.find((f) => !['image', 'video'].includes(kindOf(f)))
         if (bad) throw new Error(`Not an image or video: ${basename(bad)}`)
-        const folder = await addContent(w.id, w.name, a.caption, files)
-        return `Added as content ${folder} of "${w.name}" (pending).`
+        const folder = await addContent(l, a.caption, files)
+        return `Added as ${contentsRel(l, folder)} (pending).`
       },
     ),
-    def('requeue_workflow_content', 'Put a failed, stuck or already shared content of a workflow back in line (state pending). Only when the user asks: a content that was shared will be shared again.', z.object({ workflow_id: z.string(), folder: z.string().regex(/^\d{1,9}$/) }), async (a) => {
-      await requeueContent(localFlow(a.workflow_id).id, a.folder)
+    def('requeue_account_content', 'Put a failed, stuck or already shared content of an account back in line (state pending). Only when the user asks: a content that was shared will be shared again.', z.object({ ...who, folder: z.string().regex(/^\d{1,9}$/) }), async (a) => {
+      await requeueContent(findAccount(a.handle, a.platform), a.folder)
       return `Content ${a.folder} is pending again.`
+    }),
+    def(
+      'plan_account_posts',
+      "Spread the pending contents of an account over the coming days: per_day posts a day, in folder order, at times (HH:MM, local) or evenly between 09:00 and 21:00. ALWAYS ask the user first how many posts per day they want (and from which day, at what times) unless they already said it; never assume. The result says what to do next for this platform: schedule each content in the platform's own scheduler, or leave them to this app, which publishes each content at its time while it is running.",
+      z.object({ ...who, per_day: z.number().int().min(1).max(MAX_PER_DAY), times: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)).max(MAX_PER_DAY).optional(), start_date: z.string().regex(/^\d{4}-\d\d-\d\d$/).optional().describe('First day, YYYY-MM-DD (local). Default: from now.') }),
+      async (a) => {
+        const l = findAccount(a.handle, a.platform)
+        const from = a.start_date ? new Date(`${a.start_date}T00:00:00`) : new Date()
+        const slots = await planAccount(l, a.per_day, a.times, from < new Date() ? new Date() : from)
+        const local = (iso: string) => new Date(iso).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })
+        return `Planned ${Object.keys(slots).length} content(s) of @${l.handle}, ${a.per_day} a day:\n${Object.entries(slots).map(([f, at]) => `- ${contentsRel(l, f)} at ${local(at)}`).join('\n')}\nWork in browser_id ${agentBrowser(l) ?? '(none: the account has no browser here)'}. ${schedulerNote(l.platform)}`
+      },
+    ),
+    def(
+      'upload_account_content',
+      "Attach the image/video files of one content of an account (contents/<folder>) to the page open in the account's own browser, in one call: no paths needed. Open the composer or the scheduler's upload screen first. Returns the post text to type and the planned time. ref as in upload_files (optional).",
+      z.object({ ...who, folder: z.string().regex(/^\d{1,9}$/), tab_id: z.string().optional(), ref: z.union([z.number().int(), z.string()]).optional() }),
+      async (a) => {
+        const l = findAccount(a.handle, a.platform)
+        const browser_id = agentBrowser(l)
+        if (!browser_id) throw new Error(`@${l.handle} has no browser on this computer.`)
+        const c = (await plannedContents(l)).find((i) => i.folder === a.folder)
+        if (!c) throw new Error(`No content ${a.folder} in ${contentsRel(l)}.`)
+        const files = await Promise.all(contentFiles(l, c.folder, c.media.map((m) => `local:${c.folder}/${m.file}`)).map((f) => ws.existing(f)))
+        const how = files.length ? await onTab({ browser_id, tab_id: a.tab_id }, (d) => page.uploadFiles(d, a.ref, files, [...new Set(files.map(kindOf))])) : null
+        return `${how ? `Attached ${files.length} file(s) ${how}: ${c.media.map((m) => m.file).join(', ')}. Wait for the preview.` : 'This content has no image or video: nothing to attach.'}\nPost text (use it exactly): ${JSON.stringify(c.caption)}${c.at ? `\nPlanned time: ${new Date(c.at).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })} (local)` : ''}`
+      },
+    ),
+    def('mark_account_content_scheduled', "After you scheduled a content in the platform's own scheduler: mark it so this app does not publish it again. note: what the page confirmed (date, link).", z.object({ ...who, folder: z.string().regex(/^\d{1,9}$/), note: z.string().max(300).optional() }), async (a) => {
+      await markScheduled(findAccount(a.handle, a.platform), a.folder, a.note ?? '')
+      return `Content ${a.folder} is marked as scheduled on the platform.`
     }),
   ]
 
@@ -1425,5 +1476,5 @@ ${await ctx.vision(a.question, images)}`
 
   // Kullanılamayacak araçlar modele gönderilmiyor: bağlı Chrome yoksa eklenti araçları, hesaba kilitli akış görevinde akış yönetimi.
   const chromeOn = ctx.all || cb.instances().length > 0
-  return [...browserTools, ...(chromeOn ? chromeExtensionTools : []), ...pageTools, ...codeTools, ...chromeTools, ...mediaTools, ...dataTools, ...(ctx.only ? [] : workflowTools), ...fileTools]
+  return [...browserTools, ...(chromeOn ? chromeExtensionTools : []), ...pageTools, ...codeTools, ...chromeTools, ...mediaTools, ...dataTools, ...(ctx.only ? [] : [...workflowTools, ...accountTools]), ...fileTools]
 }
