@@ -2,7 +2,7 @@ import type { ConnectError, Effort, FlowTemplate } from '../../../shared/types.t
 
 /** Türkçe: sözlüğün biçimi (`Dict`) buradan; öteki diller aynı anahtarları taşır. */
 export const tr = {
-  nav: { chat: 'Sohbet', connections: 'Bağlantılar', workflows: 'Akışlar', chrome: 'Chrome', backup: 'Yedekler', billing: 'Paket ve bakiye', settings: 'Ayarlar', site: 'Share97 sitesi', calendar: 'Takvim', analytics: 'Analiz', marketplace: 'Marketplace', search: 'Arama' },
+  nav: { chat: 'Sohbet', connections: 'Bağlantılar', workflows: 'Akışlar', chrome: 'Chrome', mcp: 'MCP', backup: 'Yedekler', billing: 'Paket ve bakiye', settings: 'Ayarlar', site: 'Share97 sitesi', calendar: 'Takvim', analytics: 'Analiz', marketplace: 'Marketplace', search: 'Arama' },
   announce: { label: 'Duyuru', more: 'Ayrıntılar', dismiss: 'Kapat' },
   site: {
     title: 'Share97 hesabı',
@@ -370,7 +370,7 @@ export const tr = {
   layouts: { mobile: 'Mobil', mobileL: 'Büyük mobil', tablet: 'Tablet', laptop: 'Dizüstü', desktop: 'Masaüstü' },
   openTab: 'Sekmede aç',
   mcp: {
-    title: 'MCP sunucusu (dış agent bağlantısı)',
+    title: 'MCP',
     hint: 'Claude Code, Cursor gibi agent\'lar bu uygulamanın bütün araçlarını (tarayıcılar, sayfa işlemleri, medya, dosyalar) ve agent\'ın kendisini kullanır. Yalnız bu bilgisayardan, anahtarla bağlanılır; onay politikası dış agent için de geçerlidir. Anahtarı kimseyle paylaşma.',
     enable: 'MCP sunucusunu aç',
     off: 'Kapalı',
@@ -378,6 +378,11 @@ export const tr = {
     port: 'Port',
     copy: 'Ayarı kopyala',
     renew: 'Anahtarı yenile',
+    docs: 'Araç dökümanı',
+    copied: 'Kopyalandı',
+    connect: 'Agent bağla',
+    connectHint: 'Aşağıdaki ayarı kullandığın araca ekle; anahtar içindedir. Bağlanan araç bu uygulamanın bütün araçlarını kullanır: tarayıcılar, hesaplar, içerik planlama, medya yükleme ve kırpma, dosyalar.',
+    other: 'Cursor, VS Code ve diğer araçlar',
   },
   approvalAsk: 'Onaylı: para harcatan, yayınlayan ya da silen eylemlerde sor',
   approvalAuto: 'Otomatik: hiçbir şey sorma, her şeyi kendin yap (tam otomasyon)',

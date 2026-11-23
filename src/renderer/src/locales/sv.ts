@@ -2,7 +2,7 @@ import type { FlowTemplate } from '../../../shared/types.ts'
 import type { Dict } from './tr.ts'
 
 export const sv: Dict = {
-  nav: { chat: 'Chatt', connections: 'Anslutningar', workflows: 'Arbetsflöden', chrome: 'Chrome', backup: 'Säkerhetskopior', billing: 'Plan & saldo', settings: 'Inställningar', site: 'Share97-webbplats', calendar: 'Kalender', analytics: 'Analytics', marketplace: 'Marknadsplats', search: 'Sök' },
+  nav: { chat: 'Chatt', connections: 'Anslutningar', workflows: 'Arbetsflöden', chrome: 'Chrome', mcp: 'MCP', backup: 'Säkerhetskopior', billing: 'Plan & saldo', settings: 'Inställningar', site: 'Share97-webbplats', calendar: 'Kalender', analytics: 'Analytics', marketplace: 'Marknadsplats', search: 'Sök' },
   announce: { label: 'Meddelande', more: 'Detaljer', dismiss: 'Stäng' },
   site: {
     title: 'Share97-konto',
@@ -378,6 +378,11 @@ export const sv: Dict = {
     port: 'Port',
     copy: 'Kopiera konfiguration',
     renew: 'Förnya nyckel',
+    docs: 'Verktygsdokumentation',
+    copied: 'Kopierat',
+    connect: 'Anslut en agent',
+    connectHint: 'Lägg till inställningen nedan i ditt verktyg; nyckeln ingår. Ett anslutet verktyg använder alla verktyg i appen: webbläsare, konton, innehållsplanering, uppladdning och beskärning av media, filer.',
+    other: 'Cursor, VS Code och andra verktyg',
   },
   approvalAsk: 'Godkännande: fråga före åtgärder som kostar pengar, publicerar eller raderar',
   approvalAuto: 'Auto: fråga aldrig, gör allt själv (full automatisering)',

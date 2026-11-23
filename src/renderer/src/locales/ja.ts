@@ -2,7 +2,7 @@ import type { FlowTemplate } from '../../../shared/types.ts'
 import type { Dict } from './tr.ts'
 
 export const ja: Dict = {
-  nav: { chat: 'チャット', connections: '接続', workflows: 'ワークフロー', chrome: 'Chrome', backup: 'バックアップ', billing: 'プランと残高', settings: '設定', site: 'Share97 サイト', calendar: 'カレンダー', analytics: 'アナリティクス', marketplace: 'マーケットプレイス', search: '検索' },
+  nav: { chat: 'チャット', connections: '接続', workflows: 'ワークフロー', chrome: 'Chrome', mcp: 'MCP', backup: 'バックアップ', billing: 'プランと残高', settings: '設定', site: 'Share97 サイト', calendar: 'カレンダー', analytics: 'アナリティクス', marketplace: 'マーケットプレイス', search: '検索' },
   announce: { label: 'お知らせ', more: '詳細', dismiss: '閉じる' },
   site: {
     title: 'Share97 アカウント',
@@ -378,6 +378,11 @@ export const ja: Dict = {
     port: 'ポート',
     copy: '設定をコピー',
     renew: 'キーを再発行',
+    docs: 'ツールのドキュメント',
+    copied: 'コピーしました',
+    connect: 'エージェントを接続',
+    connectHint: '下の設定をお使いのツールに追加してください。キーが含まれています。接続したツールはこのアプリのすべてのツールを使えます：ブラウザ、アカウント、コンテンツの予約、メディアのアップロードと切り抜き、ファイル。',
+    other: 'Cursor、VS Code、その他のツール',
   },
   approvalAsk: '承認: お金がかかる操作、投稿、削除の前に確認する',
   approvalAuto: '自動: 確認せず、すべて自分で実行する（完全自動化）',

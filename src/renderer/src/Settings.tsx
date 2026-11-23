@@ -208,54 +208,7 @@ function AgentSection() {
           </label>
         ))}
       </Card>
-      <McpCard s={s} update={update} />
     </>
-  )
-}
-
-/** MCP sunucusu: dış agent'ların (Claude Code, Cursor...) bağlanacağı adres ve anahtar. */
-function McpCard({ s, update }: { s: SettingsT; update: (patch: Partial<SettingsT>) => void }) {
-  const [status, setStatus] = useState<{ running: boolean; error?: string }>({ running: false })
-  useEffect(() => {
-    const timer = setTimeout(() => void api().settings.mcpStatus().then(setStatus), 400)
-    return () => clearTimeout(timer)
-  }, [s.mcp, s.mcpPort, s.mcpToken])
-  const url = `http://127.0.0.1:${s.mcpPort}/mcp`
-  const config = JSON.stringify({ mcpServers: { share97: { type: 'http', url, headers: { Authorization: `Bearer ${s.mcpToken}` } } } }, null, 2)
-  return (
-    <Card title={t.mcp.title} hint={t.mcp.hint}>
-      <Row label={t.mcp.enable} hint={s.mcp ? (status.error ? `${t.mcp.failed}: ${status.error}` : status.running ? url : '') : t.mcp.off}>
-        <Switch on={s.mcp} label={t.mcp.enable} onChange={(on) => update({ mcp: on })} />
-      </Row>
-      <Row label={t.mcp.port} hint="1024-65535">
-        <input
-          type="number"
-          min={1024}
-          max={65535}
-          defaultValue={s.mcpPort}
-          className="w-24 rounded-md border border-line bg-bg px-2 py-1 text-sm"
-          onBlur={(e) => {
-            const n = Number(e.target.value)
-            // Geçersiz port yazılmış gibi kalmasın: kayıtlı değere döner.
-            if (Number.isInteger(n) && n >= 1024 && n <= 65535) update({ mcpPort: n })
-            else e.target.value = String(s.mcpPort)
-          }}
-        />
-      </Row>
-      {s.mcp && (
-        <>
-          <pre className="mt-3 overflow-x-auto rounded-lg border border-line bg-bg p-3 font-mono text-xs select-all">{config}</pre>
-          <div className="mt-2 flex gap-2 text-sm">
-            <button type="button" className="rounded-md border border-line px-3 py-1 hover:bg-raised" onClick={() => void navigator.clipboard.writeText(config)}>
-              {t.mcp.copy}
-            </button>
-            <button type="button" className="rounded-md border border-line px-3 py-1 hover:bg-raised" onClick={() => update({ mcpToken: '' })}>
-              {t.mcp.renew}
-            </button>
-          </div>
-        </>
-      )}
-    </Card>
   )
 }
 

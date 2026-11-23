@@ -2,7 +2,7 @@ import type { FlowTemplate } from '../../../shared/types.ts'
 import type { Dict } from './tr.ts'
 
 export const id: Dict = {
-  nav: { chat: 'Obrolan', connections: 'Koneksi', workflows: 'Alur kerja', chrome: 'Chrome', backup: 'Cadangan', billing: 'Paket & saldo', settings: 'Pengaturan', site: 'Situs Share97', calendar: 'Kalender', analytics: 'Analitik', marketplace: 'Marketplace', search: 'Cari' },
+  nav: { chat: 'Obrolan', connections: 'Koneksi', workflows: 'Alur kerja', chrome: 'Chrome', mcp: 'MCP', backup: 'Cadangan', billing: 'Paket & saldo', settings: 'Pengaturan', site: 'Situs Share97', calendar: 'Kalender', analytics: 'Analitik', marketplace: 'Marketplace', search: 'Cari' },
   announce: { label: 'Pengumuman', more: 'Detail', dismiss: 'Tutup' },
   site: {
     title: 'Akun Share97',
@@ -378,6 +378,11 @@ export const id: Dict = {
     port: 'Port',
     copy: 'Salin konfigurasi',
     renew: 'Perbarui kunci',
+    docs: 'Dokumentasi alat',
+    copied: 'Disalin',
+    connect: 'Hubungkan agen',
+    connectHint: 'Tambahkan pengaturan di bawah ke alat yang Anda pakai; kuncinya sudah termasuk. Alat yang terhubung memakai semua alat aplikasi ini: browser, akun, perencanaan konten, unggah dan potong media, file.',
+    other: 'Cursor, VS Code, dan alat lain',
   },
   approvalAsk: 'Persetujuan: tanya dulu sebelum aksi yang mengeluarkan uang, memublikasikan, atau menghapus',
   approvalAuto: 'Otomatis: jangan pernah bertanya, kerjakan semuanya sendiri (otomatisasi penuh)',

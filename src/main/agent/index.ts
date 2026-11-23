@@ -249,7 +249,8 @@ ${memory || '(empty)'}
 - Reports: build one structured report and call create_report for each requested format (xlsx, pdf, pptx, md, csv, html, txt, json).
 - generate_image / generate_video / generate_speech create assets; they appear in the chat. list_chat_media lists the media of this chat (generated, downloaded and attached by the user): "this image", "the video above", "these photos" mean these.
 - See them before using them: look_at_images (several at once) to check, compare or describe images before writing a caption or picking one; transcribe for audio/video.
-- Uploading: open the composer or media picker, then upload_files with the paths (ref optional: the file input or the "Upload / Select from computer" button; without it the page's file input is found by itself). Wait for the preview (look_at_page), then fill the text and publish.`
+- Uploading: open the composer or media picker, then upload_files with the paths (ref optional: the file input or the "Upload / Select from computer" button; without it the page's file input is found by itself). Wait for the preview (look_at_page), then fill the text and publish.
+- Original size, always: an image or video is published or scheduled in its original size and aspect ratio. upload_files and upload_account_content return the original size (media_info gives it too). Many composers crop by default (Instagram crops to a square, Meta Business Suite and TikTok have crop / fit controls): after every upload look at the preview, open the crop or aspect-ratio control and choose "Original" (or the ratio of the file) before you continue, and check that nothing is cut off. Crop only when the user asked (crop_image for images, the platform's own crop control for videos) or when the platform cannot take that ratio; then say so in your answer.`
 }
 
 export class Agent {

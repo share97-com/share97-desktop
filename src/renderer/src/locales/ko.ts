@@ -2,7 +2,7 @@ import type { FlowTemplate } from '../../../shared/types.ts'
 import type { Dict } from './tr.ts'
 
 export const ko: Dict = {
-  nav: { chat: '채팅', connections: '연결', workflows: '워크플로', chrome: 'Chrome', backup: '백업', billing: '요금제 및 잔액', settings: '설정', site: 'Share97 사이트', calendar: '캘린더', analytics: '분석', marketplace: '마켓플레이스', search: '검색' },
+  nav: { chat: '채팅', connections: '연결', workflows: '워크플로', chrome: 'Chrome', mcp: 'MCP', backup: '백업', billing: '요금제 및 잔액', settings: '설정', site: 'Share97 사이트', calendar: '캘린더', analytics: '분석', marketplace: '마켓플레이스', search: '검색' },
   announce: { label: '공지', more: '자세히', dismiss: '닫기' },
   site: {
     title: 'Share97 계정',
@@ -378,6 +378,11 @@ export const ko: Dict = {
     port: '포트',
     copy: '설정 복사',
     renew: '키 재발급',
+    docs: '도구 문서',
+    copied: '복사됨',
+    connect: '에이전트 연결',
+    connectHint: '아래 설정을 사용하는 도구에 추가하세요. 키가 포함되어 있습니다. 연결된 도구는 이 앱의 모든 도구를 사용합니다: 브라우저, 계정, 콘텐츠 일정, 미디어 업로드와 자르기, 파일.',
+    other: 'Cursor, VS Code 및 기타 도구',
   },
   approvalAsk: '승인: 비용 발생, 게시, 삭제 작업 전에 확인',
   approvalAuto: '자동: 묻지 않고 모든 것을 직접 수행 (완전 자동화)',

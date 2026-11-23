@@ -2,7 +2,7 @@ import type { FlowTemplate } from '../../../shared/types.ts'
 import type { Dict } from './tr.ts'
 
 export const ar: Dict = {
-  nav: { chat: 'المحادثة', connections: 'الاتصالات', workflows: 'مسارات العمل', chrome: 'Chrome', backup: 'النسخ الاحتياطية', billing: 'الباقة والرصيد', settings: 'الإعدادات', site: 'موقع Share97', calendar: 'التقويم', analytics: 'التحليلات', marketplace: 'السوق', search: 'بحث' },
+  nav: { chat: 'المحادثة', connections: 'الاتصالات', workflows: 'مسارات العمل', chrome: 'Chrome', mcp: 'MCP', backup: 'النسخ الاحتياطية', billing: 'الباقة والرصيد', settings: 'الإعدادات', site: 'موقع Share97', calendar: 'التقويم', analytics: 'التحليلات', marketplace: 'السوق', search: 'بحث' },
   announce: { label: 'إعلان', more: 'التفاصيل', dismiss: 'إغلاق' },
   site: {
     title: 'حساب Share97',
@@ -378,6 +378,11 @@ export const ar: Dict = {
     port: 'المنفذ',
     copy: 'نسخ الإعدادات',
     renew: 'تجديد المفتاح',
+    docs: 'توثيق الأدوات',
+    copied: 'تم النسخ',
+    connect: 'ربط وكيل',
+    connectHint: 'أضف الإعداد أدناه إلى الأداة التي تستخدمها؛ وهو يتضمن المفتاح. الأداة المتصلة تستخدم كل أدوات هذا التطبيق: المتصفحات، الحسابات، جدولة المحتوى، رفع الوسائط وقصها، الملفات.',
+    other: 'Cursor و VS Code وأدوات أخرى',
   },
   approvalAsk: 'الموافقة: اسأل قبل الإجراءات التي تنفق مالًا أو تنشر أو تحذف',
   approvalAuto: 'تلقائي: لا تسأل أبدًا، نفّذ كل شيء بنفسك (أتمتة كاملة)',

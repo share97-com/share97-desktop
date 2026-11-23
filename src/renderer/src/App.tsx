@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Account, AuthState, Shortcut } from '../../shared/types.ts'
-import { ArchiveRestore, Cable, CalendarDays, ChartColumn, Coins, ExternalLink, MessageSquare, Puzzle, Search, Settings as Gear, Store, Workflow } from 'lucide-react'
+import { ArchiveRestore, Cable, CalendarDays, ChartColumn, Coins, ExternalLink, MessageSquare, Plug, Puzzle, Search, Settings as Gear, Store, Workflow } from 'lucide-react'
 import { Announcements } from './Announcements.tsx'
 import { Backups } from './Backups.tsx'
 import { BrowserBar, BrowserStrip } from './Bars.tsx'
 import { Billing, balanceText, planLabel } from './Billing.tsx'
 import { ChromeView } from './Chrome.tsx'
+import { McpView } from './Mcp.tsx'
 import { Connect } from './Connect.tsx'
 import { Connections } from './Connections.tsx'
 import { Home } from './Home.tsx'
@@ -32,7 +33,7 @@ export function App() {
   )
 }
 
-export type View = 'home' | 'connections' | 'workflows' | 'chrome' | 'backup' | 'billing' | 'settings'
+export type View = 'home' | 'connections' | 'workflows' | 'chrome' | 'mcp' | 'backup' | 'billing' | 'settings'
 
 /** Sitenin bu uygulamada çizilmeyen sayfaları: cihazın oturumuyla site penceresinde açılır (`site:open`). */
 const SITE_LINKS = [
@@ -44,7 +45,7 @@ const SITE_LINKS = [
 
 /**
  * Kenar çubuğu: uygulamanın ekranları. Sohbet (agent), Bağlantılar (sosyal hesaplar), Akışlar
- * (sunucuyla eşit; cihazlar ve etkinlik de orada), Chrome (eklenti), altta paket/bakiye
+ * (sunucuyla eşit; cihazlar ve etkinlik de orada), Chrome (eklenti), MCP (dış agent bağlantısı), altta paket/bakiye
  * ve ayarlar. Çalışan ya da onay bekleyen iş varsa ilgili satırda işaret.
  */
 function Sidebar({ account, view, onView }: { account: Account; view: View; onView: (v: View) => void }) {
@@ -74,6 +75,7 @@ function Sidebar({ account, view, onView }: { account: Account; view: View; onVi
       {item('connections', Cable, t.nav.connections)}
       {item('workflows', Workflow, t.nav.workflows)}
       {item('chrome', Puzzle, t.nav.chrome)}
+      {item('mcp', Plug, t.nav.mcp)}
       <div className="my-2 border-t border-line" />
       {item('backup', ArchiveRestore, t.nav.backup)}
       <div className="my-2 border-t border-line" />
@@ -204,6 +206,7 @@ function Shell({ account }: { account: Account }) {
           {!active && view === 'connections' && <Connections account={account} />}
           {!active && view === 'workflows' && <Workflows onOpenChat={openChat} />}
           {!active && view === 'chrome' && <ChromeView />}
+          {!active && view === 'mcp' && <McpView />}
           {!active && view === 'backup' && <Backups />}
           {!active && view === 'billing' && <Billing account={account} />}
           {!active && view === 'settings' && <Settings account={account} browsers={state.browsers} initial={section} onBilling={() => show('billing')} />}

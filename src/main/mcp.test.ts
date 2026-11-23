@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { refusal, rpc, type McpHost } from './mcp.ts'
+import { docsHtml, refusal, rpc, type McpHost } from './mcp.ts'
 
 const host: McpHost = { tools: () => [{ name: 'echo', description: '', inputSchema: {} }], call: async (_n, a) => JSON.stringify(a) }
 const signal = new AbortController().signal
@@ -26,4 +26,13 @@ test('mcp: initialize, list, call, unknown tool, notification', async () => {
   const bad = (await rpc({ id: 4, method: 'tools/call', params: { name: 'nope' } }, host, signal)) as { error: { code: number } }
   assert.equal(bad.error.code, -32602)
   assert.equal(await rpc({ method: 'notifications/initialized' }, host, signal), null)
+})
+
+test('mcp: docs page lists every tool with its parameters, escaped, without a key', () => {
+  const html = docsHtml([{ name: 'crop_image', description: 'Crop <b>', inputSchema: { type: 'object', properties: { path: { type: 'string', description: 'File' }, ratio: { enum: ['1:1', '4:5'] } }, required: ['path'] } }], 9797)
+  assert.match(html, /id="crop_image"/)
+  assert.match(html, /Crop &lt;b&gt;/)
+  assert.match(html, /<code>path<\/code> <b>\*<\/b>/)
+  assert.match(html, /&quot;1:1&quot; \| &quot;4:5&quot;/)
+  assert.match(html, /http:\/\/127\.0\.0\.1:9797\/mcp/)
 })

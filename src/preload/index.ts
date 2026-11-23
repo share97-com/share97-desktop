@@ -125,6 +125,7 @@ const api: Api = {
     set: (patch) => call('settings:set', patch),
     onChange: on('settings:changed'),
     mcpStatus: () => call('settings:mcpStatus'),
+    mcpDocs: () => call('settings:mcpDocs'),
   },
   models: {
     list: (c) => call('models:list', c),

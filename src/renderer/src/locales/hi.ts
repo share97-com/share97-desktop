@@ -2,7 +2,7 @@ import type { FlowTemplate } from '../../../shared/types.ts'
 import type { Dict } from './tr.ts'
 
 export const hi: Dict = {
-  nav: { chat: 'चैट', connections: 'कनेक्शन', workflows: 'वर्कफ़्लो', chrome: 'Chrome', backup: 'बैकअप', billing: 'प्लान और बैलेंस', settings: 'सेटिंग्स', site: 'Share97 साइट', calendar: 'कैलेंडर', analytics: 'एनालिटिक्स', marketplace: 'मार्केटप्लेस', search: 'खोज' },
+  nav: { chat: 'चैट', connections: 'कनेक्शन', workflows: 'वर्कफ़्लो', chrome: 'Chrome', mcp: 'MCP', backup: 'बैकअप', billing: 'प्लान और बैलेंस', settings: 'सेटिंग्स', site: 'Share97 साइट', calendar: 'कैलेंडर', analytics: 'एनालिटिक्स', marketplace: 'मार्केटप्लेस', search: 'खोज' },
   announce: { label: 'घोषणा', more: 'विवरण', dismiss: 'बंद करें' },
   site: {
     title: 'Share97 खाता',
@@ -378,6 +378,11 @@ export const hi: Dict = {
     port: 'पोर्ट',
     copy: 'कॉन्फ़िग कॉपी करें',
     renew: 'कुंजी नई बनाएँ',
+    docs: 'टूल दस्तावेज़',
+    copied: 'कॉपी हो गया',
+    connect: 'एजेंट जोड़ें',
+    connectHint: 'नीचे दी गई सेटिंग अपने टूल में जोड़ें; इसमें कुंजी शामिल है। जुड़ा हुआ टूल इस ऐप के सभी टूल इस्तेमाल करता है: ब्राउज़र, खाते, कंटेंट प्लानिंग, मीडिया अपलोड और क्रॉप, फ़ाइलें।',
+    other: 'Cursor, VS Code और अन्य टूल',
   },
   approvalAsk: 'मंज़ूरी: पैसे खर्च करने, प्रकाशित करने या हटाने वाले कामों से पहले पूछो',
   approvalAuto: 'ऑटो: कभी मत पूछो, सब खुद करो (पूर्ण स्वचालन)',

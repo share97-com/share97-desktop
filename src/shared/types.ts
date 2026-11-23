@@ -479,6 +479,8 @@ export type Api = {
     onChange(cb: (s: Settings) => void): () => void
     /** MCP sunucusu dinliyor mu; dinleyemiyorsa nedeni (port dolu gibi). */
     mcpStatus(): Promise<{ running: boolean; error?: string }>
+    /** MCP araç dökümanını (`http://127.0.0.1:<port>/`) varsayılan tarayıcıda açar. */
+    mcpDocs(): Promise<void>
   }
   models: {
     list(category: ModelCategory): Promise<ModelInfo[]>

@@ -24,6 +24,7 @@ import * as passwords from '../passwords.ts'
 import { downloads } from '../downloads.ts'
 import * as history from '../history.ts'
 import { kindOf, safeName } from '../paths.ts'
+import { cropImage, mediaInfo } from '../media.ts'
 import { FORMATS, render, type Report } from '../reports.ts'
 import * as ws from '../workspace.ts'
 import { deleteLesson, saveLesson } from './lesson-store.ts'
@@ -651,7 +652,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
         onTab(a, async (d) => {
           const files = await Promise.all(a.paths.map((p) => ws.existing(p)))
           const how = await page.uploadFiles(d, a.ref, files, [...new Set(files.map(kindOf))])
-          return `Attached ${files.length} file(s) ${how}: ${a.paths.join(', ')}. Wait for the preview, then continue.`
+          return `Attached ${files.length} file(s) ${how}: ${a.paths.join(', ')}. Wait for the preview, then continue.${await sizeNote(files)}`
         }),
     ),
   ]
@@ -995,7 +996,35 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     return ws.rel(full)
   }
 
+  /** Yüklenen görsel / videoların özgün boyutu ve "kırpma" uyarısı: her yüklemenin sonucunda, agent unutmasın diye. */
+  const sizeNote = async (files: string[]) => {
+    const sizes = (await Promise.all(files.filter((f) => ['image', 'video'].includes(kindOf(f))).map((f) => mediaInfo(f).then((i) => `${basename(f)} ${i.width}x${i.height} (${i.ratio})`, () => null)))).filter(Boolean)
+    return sizes.length ? `\nOriginal size: ${sizes.join(', ')}. Keep the original size: if the page shows a crop, aspect ratio or fit control, choose Original (or the ratio above) and check in the preview that nothing is cut off. Crop only when the user asked, or when the platform refuses this ratio (then tell the user).` : ''
+  }
+
   const mediaTools = [
+    def(
+      'media_info',
+      'Original size of images and videos in the workspace (account contents too): width, height, aspect ratio, and the duration of a video. Use it before publishing or scheduling to know which ratio to keep in the platform\'s crop screen.',
+      z.object({ paths: z.array(z.string()).min(1).max(20).describe('Workspace paths, e.g. accounts/<handle>/<platform>/contents/1/video.mp4.') }),
+      async (a) => JSON.stringify(await Promise.all(a.paths.map(async (p) => ({ path: p, ...(await mediaInfo(await ws.existing(p)).catch((e) => ({ error: (e as Error).message }))) }))), null, 1),
+    ),
+    def(
+      'crop_image',
+      'Crop an image of the workspace (PNG or JPEG) and save the result as a new file under media/; the original is kept. Give aspect_ratio (centered crop, e.g. 1:1, 4:5, 9:16, 1.91:1) OR box in pixels. Only when the user asked for a crop or the platform refuses the original ratio: by default media is published in its original size. Videos are not cropped here: use the crop control of the platform\'s composer.',
+      z.object({
+        path: z.string().describe('Workspace path of the image.'),
+        aspect_ratio: z.string().regex(/^\d+(\.\d+)?:\d+(\.\d+)?$/).optional(),
+        box: z.object({ x: z.number().int().min(0), y: z.number().int().min(0), width: z.number().int().min(1), height: z.number().int().min(1) }).optional(),
+      }),
+      async (a) => {
+        if (!a.aspect_ratio === !a.box) throw new Error('Give exactly one of aspect_ratio and box.')
+        const full = await ws.existing(a.path)
+        const c = cropImage(full, { ratio: a.aspect_ratio, box: a.box })
+        const rel = await saved(`media/${safeName(basename(full, extname(full)))}-${c.width}x${c.height}.${c.ext}`, c.data)
+        return `Cropped to ${c.width}x${c.height} (from x ${c.x}, y ${c.y}): ${rel}`
+      },
+    ),
     def(
       'list_chat_media',
       'List the media and files of THIS chat: images, videos and audio you generated here (generate_image / generate_video / generate_speech), downloads, and files the user attached or dropped into the chat, oldest first. Use it to find the paths before look_at_images, upload_files, add_account_content or reference_images. "the image", "these photos", "the video above" mean these.',
@@ -1414,7 +1443,7 @@ ${await ctx.vision(a.question, images)}`
         if (!c) throw new Error(`No content ${a.folder} in ${contentsRel(l)}.`)
         const files = await Promise.all(contentFiles(l, c.folder, c.media.map((m) => `local:${c.folder}/${m.file}`)).map((f) => ws.existing(f)))
         const how = files.length ? await onTab({ browser_id, tab_id: a.tab_id }, (d) => page.uploadFiles(d, a.ref, files, [...new Set(files.map(kindOf))])) : null
-        return `${how ? `Attached ${files.length} file(s) ${how}: ${c.media.map((m) => m.file).join(', ')}. Wait for the preview.` : 'This content has no image or video: nothing to attach.'}\nPost text (use it exactly): ${JSON.stringify(c.caption)}${c.at ? `\nPlanned time: ${new Date(c.at).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })} (local)` : ''}`
+        return `${how ? `Attached ${files.length} file(s) ${how}: ${c.media.map((m) => m.file).join(', ')}. Wait for the preview.` : 'This content has no image or video: nothing to attach.'}${await sizeNote(files)}\nPost text (use it exactly): ${JSON.stringify(c.caption)}${c.at ? `\nPlanned time: ${new Date(c.at).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' })} (local)` : ''}`
       },
     ),
     def('mark_account_content_scheduled', "After you scheduled a content in the platform's own scheduler: mark it so this app does not publish it again. note: what the page confirmed (date, link).", z.object({ ...who, folder: z.string().regex(/^\d{1,9}$/), note: z.string().max(300).optional() }), async (a) => {

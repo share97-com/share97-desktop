@@ -2,7 +2,7 @@ import type { FlowTemplate } from '../../../shared/types.ts'
 import type { Dict } from './tr.ts'
 
 export const pt: Dict = {
-  nav: { chat: 'Chat', connections: 'Conexões', workflows: 'Fluxos', chrome: 'Chrome', backup: 'Backups', billing: 'Plano e saldo', settings: 'Configurações', site: 'Site do Share97', calendar: 'Calendário', analytics: 'Análises', marketplace: 'Marketplace', search: 'Pesquisar' },
+  nav: { chat: 'Chat', connections: 'Conexões', workflows: 'Fluxos', chrome: 'Chrome', mcp: 'MCP', backup: 'Backups', billing: 'Plano e saldo', settings: 'Configurações', site: 'Site do Share97', calendar: 'Calendário', analytics: 'Análises', marketplace: 'Marketplace', search: 'Pesquisar' },
   announce: { label: 'Aviso', more: 'Detalhes', dismiss: 'Dispensar' },
   site: {
     title: 'Conta Share97',
@@ -378,6 +378,11 @@ export const pt: Dict = {
     port: 'Porta',
     copy: 'Copiar configuração',
     renew: 'Renovar chave',
+    docs: 'Documentação das ferramentas',
+    copied: 'Copiado',
+    connect: 'Conectar um agente',
+    connectHint: 'Adicione a configuração abaixo à ferramenta que você usa; ela contém a chave. A ferramenta conectada usa todas as ferramentas deste app: navegadores, contas, planejamento de conteúdo, envio e corte de mídia, arquivos.',
+    other: 'Cursor, VS Code e outras ferramentas',
   },
   approvalAsk: 'Aprovação: perguntar antes de ações que gastam dinheiro, publicam ou excluem',
   approvalAuto: 'Auto: nunca perguntar, fazer tudo sozinho (automação total)',

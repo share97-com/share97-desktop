@@ -2,7 +2,7 @@ import type { FlowTemplate } from '../../../shared/types.ts'
 import type { Dict } from './tr.ts'
 
 export const nl: Dict = {
-  nav: { chat: 'Chat', connections: 'Koppelingen', workflows: 'Workflows', chrome: 'Chrome', backup: 'Back-ups', billing: 'Abonnement & saldo', settings: 'Instellingen', site: 'Share97-site', calendar: 'Agenda', analytics: 'Analytics', marketplace: 'Marktplaats', search: 'Zoeken' },
+  nav: { chat: 'Chat', connections: 'Koppelingen', workflows: 'Workflows', chrome: 'Chrome', mcp: 'MCP', backup: 'Back-ups', billing: 'Abonnement & saldo', settings: 'Instellingen', site: 'Share97-site', calendar: 'Agenda', analytics: 'Analytics', marketplace: 'Marktplaats', search: 'Zoeken' },
   announce: { label: 'Aankondiging', more: 'Details', dismiss: 'Sluiten' },
   site: {
     title: 'Share97-account',
@@ -378,6 +378,11 @@ export const nl: Dict = {
     port: 'Poort',
     copy: 'Configuratie kopiëren',
     renew: 'Sleutel vernieuwen',
+    docs: 'Tooldocumentatie',
+    copied: 'Gekopieerd',
+    connect: 'Agent verbinden',
+    connectHint: 'Voeg de instelling hieronder toe aan je tool; de sleutel zit erin. Een verbonden tool gebruikt alle tools van deze app: browsers, accounts, contentplanning, media uploaden en bijsnijden, bestanden.',
+    other: 'Cursor, VS Code en andere tools',
   },
   approvalAsk: 'Goedkeuring: vraag eerst bij acties die geld kosten, publiceren of verwijderen',
   approvalAuto: 'Auto: nooit vragen, alles zelf doen (volledige automatisering)',

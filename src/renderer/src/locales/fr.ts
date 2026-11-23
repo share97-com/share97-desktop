@@ -2,7 +2,7 @@ import type { FlowTemplate } from '../../../shared/types.ts'
 import type { Dict } from './tr.ts'
 
 export const fr: Dict = {
-  nav: { chat: 'Chat', connections: 'Connexions', workflows: 'Workflows', chrome: 'Chrome', backup: 'Sauvegardes', billing: 'Offre et solde', settings: 'Paramètres', site: 'Site Share97', calendar: 'Calendrier', analytics: 'Analyses', marketplace: 'Marketplace', search: 'Recherche' },
+  nav: { chat: 'Chat', connections: 'Connexions', workflows: 'Workflows', chrome: 'Chrome', mcp: 'MCP', backup: 'Sauvegardes', billing: 'Offre et solde', settings: 'Paramètres', site: 'Site Share97', calendar: 'Calendrier', analytics: 'Analyses', marketplace: 'Marketplace', search: 'Recherche' },
   announce: { label: 'Annonce', more: 'Détails', dismiss: 'Fermer' },
   site: {
     title: 'Compte Share97',
@@ -378,6 +378,11 @@ export const fr: Dict = {
     port: 'Port',
     copy: 'Copier la config',
     renew: 'Renouveler la clé',
+    docs: 'Documentation des outils',
+    copied: 'Copié',
+    connect: 'Connecter un agent',
+    connectHint: 'Ajoutez le réglage ci-dessous à votre outil ; il contient la clé. Un outil connecté utilise tous les outils de cette app : navigateurs, comptes, planification de contenu, envoi et recadrage de médias, fichiers.',
+    other: 'Cursor, VS Code et autres outils',
   },
   approvalAsk: 'Approbation : demander avant les actions qui dépensent de l’argent, publient ou suppriment',
   approvalAuto: 'Auto : ne jamais demander, tout faire soi-même (automatisation complète)',

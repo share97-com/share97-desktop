@@ -484,6 +484,7 @@ function registerIpc() {
   handle('settings:get', () => settings())
   handle('settings:set', (patch) => updateSettings((patch ?? {}) as never))
   handle('settings:mcpStatus', () => mcpStatus())
+  handle('settings:mcpDocs', () => shell.openExternal(`http://127.0.0.1:${settings().mcpPort}/`))
   handle('models:list', (c) => {
     if (!CATEGORIES.has(c as ModelCategory)) throw new Error('bad-argument')
     return models(c as ModelCategory)

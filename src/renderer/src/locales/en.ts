@@ -2,7 +2,7 @@ import type { Dict } from './tr.ts'
 import type { FlowTemplate } from '../../../shared/types.ts'
 
 export const en: Dict = {
-  nav: { chat: 'Chat', connections: 'Connections', workflows: 'Workflows', chrome: 'Chrome', backup: 'Backups', billing: 'Plan & balance', settings: 'Settings', site: 'Share97 site', calendar: 'Calendar', analytics: 'Analytics', marketplace: 'Marketplace', search: 'Search' },
+  nav: { chat: 'Chat', connections: 'Connections', workflows: 'Workflows', chrome: 'Chrome', mcp: 'MCP', backup: 'Backups', billing: 'Plan & balance', settings: 'Settings', site: 'Share97 site', calendar: 'Calendar', analytics: 'Analytics', marketplace: 'Marketplace', search: 'Search' },
   announce: { label: 'Announcement', more: 'Details', dismiss: 'Dismiss' },
   site: {
     title: 'Share97 account',
@@ -378,6 +378,11 @@ export const en: Dict = {
     port: 'Port',
     copy: 'Copy config',
     renew: 'Renew key',
+    docs: 'Tool documentation',
+    copied: 'Copied',
+    connect: 'Connect an agent',
+    connectHint: 'Add the setting below to the tool you use; it contains the key. A connected tool can use every tool of this app: browsers, accounts, content planning, media upload and cropping, files.',
+    other: 'Cursor, VS Code and other tools',
   },
   approvalAsk: 'Approval: ask before actions that spend money, publish or delete',
   approvalAuto: 'Auto: never ask, do everything yourself (full automation)',
