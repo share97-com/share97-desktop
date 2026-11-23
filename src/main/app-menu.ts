@@ -1,6 +1,7 @@
 import { clipboard, Menu, shell, type BrowserWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import { isWebUrl } from './address.ts'
-import { L, type Browsers } from './browsers.ts'
+import { type Browsers } from './browsers.ts'
+import { L } from './strings.ts'
 
 /**
  * **Uygulama arayüzüne sağ tık** (sohbet, ayarlar, Chrome ekranı). Web sayfalarının menüsü ayrı

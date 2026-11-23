@@ -7,6 +7,7 @@ import { track } from './downloads.ts'
 import * as extensions from './extensions.ts'
 import * as history from './history.ts'
 import { dataPath, debouncedWriter, readJson, writeJson } from './store.ts'
+import { L } from './strings.ts'
 
 /**
  * **Tarayıcılar.** Her tarayıcı tek bir çerez deposu (`persist:browser-<id>`: çerez, localStorage,
@@ -43,14 +44,6 @@ const thumbsFile = () => dataPath('thumbnails.json')
 /** Kalıcı tarayıcı diskte; gizli tarayıcı yalnız bellekte (`persist:` öneki yok). */
 const partition = (id: string, incognito: boolean) => (incognito ? `incognito-${id}` : `persist:browser-${id}`)
 
-/** Menü ve izin penceresi metinleri: sistem dili Türkçeyse Türkçe, değilse İngilizce. */
-const TR = {
-  translate: 'Bu sayfayı çevir',
-  incognito: 'Gizli', newTab: "Yeni sekme", reload: "Yeniden yükle", duplicate: "Sekmeyi çoğalt", unmute: "Sitenin sesini aç", mute: "Siteyi sessize al", close: "Kapat", closeOthers: "Diğer sekmeleri kapat", reopen: "Kapatılan sekmeyi yeniden aç", openLink: "Bağlantıyı yeni sekmede aç", copyLink: "Bağlantı adresini kopyala", openImage: "Resmi yeni sekmede aç", saveImage: "Resmi kaydet", copyImage: "Resmi kopyala", undo: "Geri al", redo: "Yinele", cut: "Kes", copy: "Kopyala", paste: "Yapıştır", selectAll: "Tümünü seç", search: "Google'da ara", back: "Geri", forward: "İleri", print: "Yazdır…", inspect: "İncele", permAllow: "İzin ver", permDeny: "İzin verme", permAsk: "şu izni istiyor", permRemember: "Karar bu tarayıcıda bu site için hatırlanır.", browser: "Tarayıcı", approvalNeeded: "Onay bekleniyor", agentDone: "Agent işi bitirdi.", agentFailed: "Agent durdu", openInApp: "Bağlantıyı uygulamada aç", openExternal: "Bağlantıyı sistem tarayıcısında aç", addWord: "Sözlüğe ekle", chatData: "Sohbet verileri", quit: "Çıkış" }
-const EN: typeof TR = {
-  translate: 'Translate this page',
-  incognito: 'Incognito', newTab: "New tab", reload: "Reload", duplicate: "Duplicate", unmute: "Unmute site", mute: "Mute site", close: "Close", closeOthers: "Close other tabs", reopen: "Reopen closed tab", openLink: "Open link in new tab", copyLink: "Copy link address", openImage: "Open image in new tab", saveImage: "Save image", copyImage: "Copy image", undo: "Undo", redo: "Redo", cut: "Cut", copy: "Copy", paste: "Paste", selectAll: "Select all", search: "Search Google for", back: "Back", forward: "Forward", print: "Print…", inspect: "Inspect", permAllow: "Allow", permDeny: "Block", permAsk: "wants permission for", permRemember: "The choice is remembered for this site in this browser.", browser: "Browser", approvalNeeded: "Approval needed", agentDone: "The agent finished.", agentFailed: "The agent stopped", openInApp: "Open link in the app", openExternal: "Open link in the system browser", addWord: "Add to dictionary", chatData: "Chat data", quit: "Quit" }
-export const L = () => (app.getLocale().toLowerCase().startsWith('tr') ? TR : EN)
 
 /** Chrome'un yakınlaştırma adımları. */
 export const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5]

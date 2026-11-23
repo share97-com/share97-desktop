@@ -14,7 +14,11 @@ export type Account = {
   /** Paketin sınırları; `null` sınırsız. */
   limits: { maxAccounts: number | null; maxWorkflows: number | null }
   worker: { id: string; name: string } | null
+  /** Sitede yayındaki duyurular (uygulamanın dilinde ya da dilsiz), en fazla üç. */
+  announcements: Announcement[]
 }
+
+export type Announcement = { id: string; title: string; body: string; level: 'info' | 'warning' | 'success' | string; href: string | null }
 
 export type AuthState = { status: 'signed-out' } | { status: 'connecting' } | { status: 'signed-in'; account: Account } | { status: 'error'; error: ConnectError }
 
@@ -398,6 +402,11 @@ export type Api = {
   /** Share97 sitesini (faturalama, akış düzenleyicisi...) bu cihazın oturumuyla ayrı pencerede açar. */
   site: {
     open(path: string): Promise<void>
+  }
+  /** Hesabın öteki cihazları (Worker): ad ve kaldırma; bu cihaz kaldırılmıyor. */
+  workers: {
+    rename(id: string, name: string): Promise<void>
+    remove(id: string): Promise<void>
   }
   browsers: {
     state(): Promise<BrowsersState>

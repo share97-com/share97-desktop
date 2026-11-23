@@ -60,10 +60,10 @@ export function Home({ state, thumbs, focus }: { state: BrowsersState; thumbs: T
 
   return (
     <div className="absolute inset-0 flex">
-      <aside className="flex w-64 shrink-0 flex-col border-r border-line bg-bg">
+      <aside className="flex w-64 shrink-0 flex-col border-e border-line bg-bg">
         <button type="button" className="m-3 mb-2 flex h-9 items-center gap-2 rounded-full border border-line-2 px-3.5 text-sm hover:bg-panel" title={`${t.newChat} (Ctrl+N)`} onClick={() => setChatId(null)}>
           <MessageSquarePlus className="size-4" /> {t.newChat}
-          <kbd className="readout ml-auto !text-muted">ctrl+n</kbd>
+          <kbd className="readout ms-auto !text-muted">ctrl+n</kbd>
         </button>
         <label className="mx-3 mb-2 flex h-9 items-center gap-2 rounded-full border border-muted/70 px-3 text-sm focus-within:border-brand">
           <Search className="size-3.5 shrink-0 text-muted" />
@@ -210,7 +210,7 @@ function Browsers({ state, thumbs }: { state: BrowsersState; thumbs: Thumbnails 
                 <p className="flex items-center gap-2 text-sm font-medium">
                   <span className="h-3 w-0.5 shrink-0 rounded-full" style={{ background: x.color }} aria-hidden />
                   <span className="truncate">{x.name}</span>
-                  <span className="readout ml-auto shrink-0 !text-muted">{x.open ? t.tabs(x.tabs.length) : t.closedTabs(x.savedTabs)}</span>
+                  <span className="readout ms-auto shrink-0 !text-muted">{x.open ? t.tabs(x.tabs.length) : t.closedTabs(x.savedTabs)}</span>
                 </p>
                 <p className="readout truncate !text-muted">{(x.open && tab?.title) || hostOf(x.lastUrl)}</p>
                 {x.note && <p className="line-clamp-2 text-xs text-fg/80">{x.note}</p>}

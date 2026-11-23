@@ -57,14 +57,19 @@ const contents = await import('./contents.ts')
 const runner = await import('./runner.ts')
 const opened: string[] = []
 const logs: string[] = []
+const stoppedChats: string[] = []
+/** İş başlarken (sohbet açıldıktan sonra) çağrılır: testin işin ortasında bir şey yapması için. */
+let onTask: ((chatId: string) => void) | null = null
 runner.initRunner({
   agent: {
     task: async (title: string, prompt: string, _model: unknown, browserId: string, onStart: (id: string) => void, chatId?: string) => {
       tasks.push({ title, prompt, browserId })
       const id = chatId ?? `chat${tasks.length}`
       onStart(id)
+      onTask?.(id)
       return { chatId: id, ...taskResult }
     },
+    stop: (id: string) => void stoppedChats.push(id),
   } as never,
   exclusive: (fn) => fn(),
   log: (text) => void logs.push(text),
@@ -160,4 +165,35 @@ test('zamanlayıcı: yalnız bu cihazın açık akışları, saati gelen yuvada 
   runner.schedule(11 * h + 20_000)
   await new Promise((r) => setTimeout(r, 50))
   assert.equal(started().length, count + 1, 'aynı yuva ikinci kez başlamaz')
+})
+
+test('sıra: aynı anda başlatılan akışlar iç içe girmez; sırada bekleyen akış ikinci kez eklenmez', async () => {
+  const chain = (id: string) => flow(id, { nodes: [node('t1', 'trigger'), node('a1', 'agent', { accountId: 'acc1', prompt: 'one' }), node('a2', 'agent', { accountId: 'acc1', prompt: 'two' })], edges: [{ source: 't1', target: 'a1' }, { source: 'a1', target: 'a2' }] })
+  const [a, b] = [chain('qa'), chain('qb')]
+  const before = tasks.length
+  const runs = [runner.runFlow(a as never, 60_000, 't1'), runner.runFlow(b as never, 60_000, 't1')]
+  assert.equal((await runner.runFlow(b as never, 120_000, 't1')).error, 'this workflow is already waiting in the queue')
+  assert.deepEqual((await Promise.all(runs)).map((r) => r.status), ['success', 'success'])
+  assert.deepEqual(tasks.slice(before).map((t) => t.title.split(' ·')[0]), ['Flow qa', 'Flow qa', 'Flow qb', 'Flow qb'])
+  assert.equal(runner.runnerBusy(), false)
+  assert.equal((await runner.runFlow(b as never, 180_000, 't1')).status, 'success', 'sıra boşalınca yeniden çalışır')
+})
+
+test('siteden durdur: süren çalışmanın sohbeti durur ve sonraki adımı çalışmaz; sırada bekleyen hiç başlamaz', async () => {
+  const chain = (id: string) => flow(id, { nodes: [node('t1', 'trigger'), node('a1', 'agent', { accountId: 'acc1', prompt: 'one' }), node('a2', 'agent', { accountId: 'acc1', prompt: 'two' })], edges: [{ source: 't1', target: 'a1' }, { source: 'a1', target: 'a2' }] })
+  const [a, b] = [chain('sa'), chain('sb')]
+  taskResult = { ok: true, summary: 'done' }
+  const before = tasks.length
+  onTask = (chatId) => {
+    onTask = null
+    runner.stopFlow('sa')
+    runner.stopFlow('sb')
+    assert.deepEqual(stoppedChats.slice(-1), [chatId], 'süren işin sohbeti durdurulur')
+  }
+  const out = await Promise.all([runner.runFlow(a as never, 60_000, 't1'), runner.runFlow(b as never, 60_000, 't1')])
+  assert.deepEqual(out, [{ status: 'failed', error: runner.STOPPED }, { status: 'skipped', error: runner.STOPPED }])
+  assert.deepEqual(tasks.slice(before).map((t) => t.title.split(' ·')[0]), ['Flow sa'], 'ikinci adım ve sıradaki akış çalışmaz')
+  assert.equal((last(/runs\/run\d+$/).body as { status: string; error: string }).error, runner.STOPPED)
+  assert.equal(runner.runnerBusy(), false)
+  assert.equal((await runner.runFlow(b as never, 120_000, 't1')).status, 'success', 'durdurma kalıcı değil: sonraki çalışma normal')
 })

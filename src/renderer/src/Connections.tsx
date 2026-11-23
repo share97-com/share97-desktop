@@ -159,7 +159,7 @@ function AccountCard({ account: a, groups }: { account: SocialAccount; groups: s
           </button>
         )}
         {!editing && (
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ms-auto flex items-center gap-1">
             {a.layout && <LayoutSwitch value={a.layout} disabled={busy} onChange={(l) => act(api().connections.setLayout(a.id, l))} />}
             {a.here && a.status !== 'connected' && (
               <button className={button} disabled={busy} onClick={() => act(api().connections.relogin(a.id))}>

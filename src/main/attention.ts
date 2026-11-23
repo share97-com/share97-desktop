@@ -1,6 +1,6 @@
 import { Notification, type BrowserWindow } from 'electron'
 import type { Chat } from '../shared/types.ts'
-import { L } from './browsers.ts'
+import { L } from './strings.ts'
 
 /**
  * **Kullanıcının dikkati.** Agent bir onay beklerken ya da işi bitince kullanıcı başka yerdeyse

@@ -4,6 +4,7 @@ import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { app, safeStorage, shell } from 'electron'
 import type { Account, AuthState, ConnectError } from '../shared/types.ts'
+import { pickLocale } from '../shared/locales.ts'
 import { authorizeUrl, parseCallback, random } from './pkce.ts'
 
 /**
@@ -82,7 +83,7 @@ export async function server<T>(path: string, init: { method?: string; body?: un
 export async function refresh(): Promise<AuthState> {
   if (!key) return set({ status: 'signed-out' })
   try {
-    return set({ status: 'signed-in', account: await server<Account>('/api/v1/worker/me') })
+    return set({ status: 'signed-in', account: await server<Account>(`/api/v1/worker/me?lang=${pickLocale(app.getLocale())}`) })
   } catch (e) {
     if (e instanceof ServerError && e.status === 401) return state
     // Ağ hatası: oturum düşmüyor, eldeki hesap bilgisi ekranda kalıyor.

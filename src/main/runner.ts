@@ -1,4 +1,4 @@
-import { app, Notification } from 'electron'
+import { Notification } from 'electron'
 import type { Overview } from '../shared/types.ts'
 import type { LocalMedia } from '../shared/contents.ts'
 import { checkPost, jobPrompt, platformOf, type JobPost } from '../shared/platforms.ts'
@@ -8,6 +8,7 @@ import type { Agent } from './agent/index.ts'
 import { refresh, server, ServerError } from './auth.ts'
 import { contentFiles, contentsRel, finishContent, generateContents, listContents, setContentStatus, takeContent } from './contents.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
+import { L } from './strings.ts'
 
 /**
  * **Akışları bu uygulama çalıştırır.** Sunucuda yalnız akışın tanımı (denetim) ve çalışma kaydı durur; zamanı
@@ -26,6 +27,8 @@ type Out = WalkOut<Item>
 export type RunOutcome = { status: 'success' | 'failed' | 'skipped' | 'duplicate'; error: string | null }
 
 const MAX_SUB_WORKFLOW_DEPTH = 2
+/** Bir hesaptaki tek işin üst süresi. */
+const JOB_MAX_MS = 45 * 60_000
 
 type Deps = {
   agent: Agent
@@ -39,7 +42,6 @@ type Deps = {
 let deps: Deps
 export const initRunner = (d: Deps) => void (deps = d)
 
-const tr = () => app.getLocale().toLowerCase().startsWith('tr')
 const notify = (body: string, onClick?: () => void) => {
   if (!Notification.isSupported()) return
   const n = new Notification({ title: 'Share97', body: body.slice(0, 250) })
@@ -67,7 +69,12 @@ type Run = {
   parent?: string
   subDepth: number
   visited: Set<string>
+  /** Siteden "Durdur" (`stopFlow`): gövdelerle paylaşılıyor; sonraki düğüm çalışmaz. */
+  halt: { stopped: boolean }
 }
+
+/** Siteden durdurulan çalışmanın kayıttaki nedeni. */
+export const STOPPED = 'stopped from the site'
 
 const save = (r: Run, extra: Record<string, unknown> = {}) =>
   server(`/api/v1/worker/runs/${encodeURIComponent(r.id)}`, { method: 'PATCH', body: { steps: r.steps.length > 200 ? [r.steps[0], ...r.steps.slice(-199)] : r.steps, ...extra } }).catch((e) => console.error('[runner]', (e as Error).message))
@@ -107,7 +114,7 @@ function appendHashtags(caption: string, tags: string[]) {
 /** Hesabın tarayıcısına erişilemedi: kullanıcı uyarılır, oturum düşmüşse sunucuya bildirilir ve bildirime tıklayınca giriş ekranı açılır. */
 function warnAccess(account: LocalAccount, problem: { expired: boolean; error: string }) {
   if (problem.expired) void server('/api/v1/worker/poll', { body: { accountIds: [], expired: [{ id: account.id, error: problem.error }] } }).then(syncAccounts, () => {})
-  notify(problem.expired ? (tr() ? `@${account.handle}: oturum düşmüş, akış bu hesapta çalışamadı. Yeniden giriş yapmak için tıkla.` : `@${account.handle}: the session ended and the workflow could not run on this account. Click to sign in again.`) : problem.error, () => {
+  notify(problem.expired ? L().sessionEnded(account.handle) : problem.error, () => {
     deps.showApp()
     if (problem.expired) void relogin(account.id)
   })
@@ -151,8 +158,13 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
   const files = item ? contentFiles(r.flow.id, item.folder, (post.media ?? []).map((m) => m.url)) : []
   const prompt = jobPrompt({ platform: account.platform, handle: account.handle, browserId, post, files, folder: item ? contentsRel(r.flow.id, item.folder) : undefined })
   // Hata çift paylaşım riski taşır: iş bir kez denenir, sonucu ne olursa olsun kayda geçer.
+  // Takılan iş sırayı sonsuza dek tutmasın: süre dolunca sohbeti durdurulur, iş düşmüş sayılır.
+  let jobChat = ''
+  const timeout = setTimeout(() => jobChat && deps.agent.stop(jobChat), JOB_MAX_MS)
   const out = await deps
     .exclusive(() => {
+      // Sırasını beklerken siteden durdurulduysa iş hiç başlamaz.
+      if (r.halt.stopped) throw new Error(STOPPED)
       const opened = openForJob(account)
       if (opened) r.opened.add(opened)
       const earlier = r.chats.get(accountId)
@@ -162,16 +174,18 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
         null,
         browserId,
         (chatId) => {
+          jobChat = chatId
           r.chats.set(accountId, chatId)
           if (chatId === earlier) return
           r.chatIds.push(chatId)
-          deps.log(`${r.flow.name} · @${account.handle}: ${tr() ? 'başladı' : 'started'}`, 'info', chatId)
+          deps.log(`${r.flow.name} · @${account.handle}: ${L().started}`, 'info', chatId)
           deps.openChat(chatId, r.manual)
         },
         earlier,
       )
     })
     .catch((e) => ({ ok: false, summary: `may be partly done, check the account before retrying: ${(e as Error).message.slice(0, 400)}`, permalink: undefined, expired: false }))
+    .finally(() => clearTimeout(timeout))
   await result(out.ok, out.ok ? (out.permalink ?? '') : out.summary)
   if (!out.ok) {
     if (out.expired) warnAccess(account, { expired: true, error: out.summary })
@@ -186,6 +200,7 @@ async function work(r: Run, accountId: string, item: Item | null, o: { instructi
 }
 
 async function execute(r: Run, node: GraphNode, items: Item[]): Promise<Out> {
+  if (r.halt.stopped) throw new Error(STOPPED)
   const d = node.data
   const tz = r.flow.timezone
   if (isPublish(node.type)) {
@@ -216,7 +231,7 @@ async function execute(r: Run, node: GraphNode, items: Item[]): Promise<Out> {
       if (items.length) return { status: 'skip', detail: 'already has items' }
       const c = await takeContent(r.flow.id, r.flow.content)
       if (!c) {
-        notify(tr() ? `"${r.flow.name}": paylaşacak içerik kalmadı. Klasöre yeni içerik ekle ya da uygulamada üret.` : `"${r.flow.name}" has no content left to share. Add content to its folder or generate some in the app.`)
+        notify(L().noContent(r.flow.name))
         return { status: 'skip', detail: NO_CONTENT }
       }
       r.taken.set(c.folder, false)
@@ -288,28 +303,109 @@ async function execute(r: Run, node: GraphNode, items: Item[]): Promise<Out> {
     case 'delay': {
       // ponytail: bekleme süreçte tutulur; uygulama beklerken kapanırsa çalışma yarım kalır (sunucu sonraki çalışmada `failed` kapatır).
       const minutes = Math.min(24 * 60, Math.max(1, Number(d.minutes) || 15))
+      // Beklerken sıra başka akışlara açık; süre dolunca bu çalışma sıranın önünden sürer.
+      release()
       await new Promise((resolve) => setTimeout(resolve, minutes * 60_000))
+      await acquire(true)
       return { status: 'ok', detail: `${minutes} min` }
     }
   }
   return { status: 'skip', detail: `unknown step: ${node.type}` }
 }
 
-/** Şu an çalışan akışlar: aynı akış üst üste çalışmaz (aynı içerik iki kez alınmasın). */
-const running = new Set<string>()
-export const runnerBusy = () => running.size > 0
+/**
+ * **Çalışma sırası.** Aynı anda tek akış çalışır; öbürleri sıraya girer ve önceki bitince başlar: iki akışın adımları
+ * aynı hesabın tarayıcısında (tek sekme) iç içe girmesin, cihaz yorulmasın. Elle başlatılan çalışma sıranın önüne
+ * geçer. Bekleme (`delay`) düğümü sırayı bırakır, süresi dolunca öne geçerek geri alır.
+ */
+let busy = false
+const waiters: { front: boolean; go: () => void }[] = []
+function acquire(front: boolean): Promise<void> {
+  if (!busy) {
+    busy = true
+    return Promise.resolve()
+  }
+  return new Promise((go) => {
+    const w = { front, go }
+    if (front) waiters.splice(waiters.findLastIndex((x) => x.front) + 1, 0, w)
+    else waiters.push(w)
+  })
+}
+function release() {
+  const next = waiters.shift()
+  if (next) next.go()
+  else busy = false
+}
+/** Akış dışı agent işi (otomatik paylaşım) de aynı sırada: bir akışın adımlarının arasına girmesin. */
+export async function inRunQueue<T>(fn: () => Promise<T>): Promise<T> {
+  await acquire(false)
+  try {
+    return await fn()
+  } finally {
+    release()
+  }
+}
+
+/** Sırada bekleyen çalışmalar (akış başına en çok bir tane): uygulama kapanırsa açılışta yeniden sıraya girer. */
+type Queued = { id: string; slot: number; trigger: string; manual: boolean; at: number; stopped?: boolean }
+const queued: Queued[] = []
+/** Akışın şu an süren çalışması (`stopFlow` için). */
+const live = new Map<string, Run>()
+
+/**
+ * **Siteden "Durdur"**: akışın sırada bekleyen çalışması düşer, süren çalışmasının agent sohbetleri durdurulur ve
+ * sonraki düğümü çalışmaz; kayda `STOPPED` nedeniyle düşmüş yazılır. Süren ya da bekleyen yoksa bir şey yapmaz.
+ */
+export function stopFlow(id: string) {
+  for (const q of queued) if (q.id === id) q.stopped = true
+  const r = live.get(id)
+  if (!r) return
+  r.halt.stopped = true
+  for (const chatId of r.chats.values()) deps.agent.stop(chatId)
+}
+/** Akışın süren çalışması: aynı akışın sonraki çalışması onun bitmesini bekler (aynı içerik iki kez alınmasın). */
+const tails = new Map<string, Promise<unknown>>()
+export const runnerBusy = () => busy || queued.length > 0
+
+type State = { checkedAt?: number; queue?: Queued[] }
+const file = () => dataPath('runner.json')
+const state = () => readJson<State>(file(), {})
+const saveQueue = () => writeJson(file(), { ...state(), queue: queued })
 
 /**
  * Akışı çalıştırır. `trigger` boşsa (elle "Şimdi çalıştır") bütün tetikleyicilerinden başlar. Sunucu aynı yuvayı
  * ikinci kez açtırmaz (`duplicate`). Dönüş: çalışmanın sonucu; atlandıysa **nedeni** (`error`).
  */
-export async function runFlow(flow: Flow, slot: number, trigger: string, manual = false): Promise<RunOutcome> {
-  if (running.has(flow.id)) {
-    deps.log(`${flow.name}: ${tr() ? 'önceki çalışma sürüyor, bu çalışma atlandı' : 'the previous run is still going, this run was skipped'}`, 'info')
-    return { status: 'failed', error: 'this workflow is already running' }
+export async function runFlow(given: Flow, slot: number, trigger: string, manual = false): Promise<RunOutcome> {
+  // Akış başına sırada tek çalışma: sık tetiklenen akış uzun bir işin arkasında yığılmasın.
+  if (queued.some((q) => q.id === given.id)) {
+    deps.log(`${given.name}: ${L().alreadyQueued}`, 'info')
+    return { status: 'failed', error: 'this workflow is already waiting in the queue' }
   }
-  running.add(flow.id)
+  const entry: Queued = { id: given.id, slot, trigger, manual, at: Date.now() }
+  queued.push(entry)
+  saveQueue()
+  const ahead = (busy ? 1 : 0) + waiters.length
+  if (ahead || tails.has(given.id)) deps.log(`${given.name}: ${L().queued(Math.max(ahead, 1))}`, 'info')
+  const previous = tails.get(given.id)
+  let finish!: () => void
+  const mine_ = new Promise<void>((r) => (finish = r))
+  tails.set(given.id, mine_)
+  await previous
+  await acquire(manual)
+  queued.splice(queued.indexOf(entry), 1)
+  saveQueue()
+  // Sırada beklerken akış değişmiş olabilir: güncel tanımıyla çalışır; kapatıldıysa zamanlanmış çalışma düşer.
+  const flow = mine().find((w) => w.id === given.id) ?? given
   try {
+    if (entry.stopped) {
+      deps.log(`${flow.name}: ${L().stoppedFromSite}`, 'info')
+      return { status: 'skipped', error: STOPPED }
+    }
+    if (!manual && !flow.active) {
+      deps.log(`${flow.name}: ${L().offWhileQueued}`, 'info')
+      return { status: 'skipped', error: 'turned off while waiting in the queue' }
+    }
     let open: { id: string }
     try {
       open = await server('/api/v1/worker/runs', { body: { workflowId: flow.id, slot, trigger } })
@@ -317,28 +413,33 @@ export async function runFlow(flow: Flow, slot: number, trigger: string, manual 
       if (e instanceof ServerError && e.status === 409) return { status: 'duplicate', error: null }
       throw e
     }
-    const r: Run = { id: open.id, flow, graph: flow.graph, steps: [], tally: { done: 0 }, chatIds: [], chats: new Map(), taken: new Map(), opened: new Set(), manual, subDepth: 0, visited: new Set([flow.id]) }
+    const r: Run = { id: open.id, flow, graph: flow.graph, steps: [], tally: { done: 0 }, chatIds: [], chats: new Map(), taken: new Map(), opened: new Set(), manual, subDepth: 0, visited: new Set([flow.id]), halt: { stopped: false } }
+    live.set(flow.id, r)
     const starts = triggersIn(flow.graph).filter((t) => !trigger || t.id === trigger)
     // Beklenmeyen hata da çalışmayı kapatır: yoksa sunucuda "çalışıyor", içerik "yayınlanıyor" kalırdı.
     const failure = await runWalk<Item>(flow.graph, starts.map((t) => ({ id: t.id, items: [] })), (n, it) => execute(r, n, it), [], describe, recorder(r)).then(
       (w) => w.failure,
       (e) => (e as Error).message || 'unexpected error',
     )
-    const status = failure ? 'failed' : r.tally.done ? 'success' : 'skipped'
-    const error = failure ?? (status === 'skipped' ? skipReason(flow.graph, r.steps) : null)
+    live.delete(flow.id)
+    const status = failure || r.halt.stopped ? 'failed' : r.tally.done ? 'success' : 'skipped'
+    // Durdurulan çalışmada agent'ın "durduruldu" yanıtı değil, durdurma nedeni yazılır.
+    const error = r.halt.stopped ? STOPPED : (failure ?? (status === 'skipped' ? skipReason(flow.graph, r.steps) : null))
     if (status === 'success') for (const id of r.opened) closeAfterJob(id)
     // Hiçbir hesaba ulaşmayan içerik yanmaz: yeniden sıraya döner, nedeni notunda.
     for (const [folder, touched] of r.taken) if (!touched) await setContentStatus(flow.id, folder, 'pending', `not shared: ${(error ?? 'the run ended before an account step').slice(0, 300)}`).catch(() => {})
     // Çalışmanın sohbet süreçleri kayda: geçmiş bu sohbetlere bağlanır.
     if (r.steps[0]) r.steps[0] = { ...r.steps[0], output: { ...r.steps[0].output, chatIds: r.chatIds } }
     await save(r, { status, error: error?.slice(0, 2000) })
-    const text = status === 'success' ? (tr() ? 'tamamlandı' : 'done') : status === 'failed' ? error! : `${tr() ? 'atlandı' : 'skipped'}: ${error}`
+    const text = r.halt.stopped ? L().stoppedFromSite : status === 'success' ? L().runDone : status === 'failed' ? error! : `${L().runSkipped}: ${error}`
     deps.log(`${flow.name}: ${text}`, status === 'success' ? 'ok' : status === 'failed' ? 'error' : 'info', r.chatIds.at(-1))
     // Atlanan çalışma yalnız etkinlik kaydında: her yuvada bildirim yağmasın (içerik bittiyse ayrıca bildirildi).
     if (status !== 'skipped') notify(`${flow.name}: ${text}`)
     return { status, error }
   } finally {
-    running.delete(flow.id)
+    release()
+    if (tails.get(given.id) === mine_) tails.delete(given.id)
+    finish()
     void refresh()
     void syncAccounts()
   }
@@ -357,7 +458,7 @@ export async function runNow(id: string): Promise<RunOutcome> {
   return runFlow(flow, Date.now(), '', true)
 }
 
-const file = () => dataPath('runner.json')
+let restored = false
 
 /**
  * Zamanlayıcının bir adımı (her yoklamada): bu cihaza atanmış, açık her akışın son bakıştan bu yana saati gelen
@@ -366,12 +467,22 @@ const file = () => dataPath('runner.json')
 export function schedule(now = Date.now()) {
   // Akışlar henüz okunamadıysa (ağ yok) bakış ilerlemez: kaçan yuva eşitlenince telafi edilir.
   if (!connectionsState().overview) return
-  const after = readJson<{ checkedAt?: number }>(file(), {}).checkedAt ?? now
-  writeJson(file(), { checkedAt: now })
+  const st = state()
+  const after = st.checkedAt ?? now
+  writeJson(file(), { ...st, checkedAt: now })
+  const start = (flow: Flow, slot: number, trigger: string, manual = false) => void runFlow(flow, slot, trigger, manual).catch((e) => deps.log(`${flow.name}: ${(e as Error).message}`, 'error'))
+  // Uygulama kapanırken sırada bekleyen (başlamamış) çalışmalar: bir günden eski değilse yeniden sıraya.
+  if (!restored) {
+    restored = true
+    for (const q of st.queue ?? []) {
+      const flow = mine().find((w) => w.id === q.id)
+      if (flow && now - q.at < 24 * 60 * 60_000 && !queued.some((x) => x.id === q.id)) start(flow, q.slot, q.trigger, q.manual)
+    }
+  }
   for (const flow of mine())
     if (flow.active)
       for (const t of triggersIn(flow.graph)) {
         const slot = dueSlot(t.data as Trigger, flow.timezone, after, now)
-        if (slot !== null) void runFlow(flow, slot, t.id).catch((e) => deps.log(`${flow.name}: ${(e as Error).message}`, 'error'))
+        if (slot !== null) start(flow, slot, t.id)
       }
 }

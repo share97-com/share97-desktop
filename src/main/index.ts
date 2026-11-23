@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, powerSaveBlocker, protocol, screen, shell, Tray, type IpcMainInvokeEvent } from 'electron'
 import type { Bounds, ModelCategory } from '../shared/types.ts'
+import { pickLocale, sitePath } from '../shared/locales.ts'
 import * as accounts from './accounts.ts'
 import { Agent } from './agent/index.ts'
 import { powerState, setPower } from './power.ts'
@@ -20,7 +21,8 @@ import { isFlowTemplate } from '../shared/types.ts'
 import * as downloads from './downloads.ts'
 import * as extensions from './extensions.ts'
 import * as passwords from './passwords.ts'
-import { Browsers, L, shortcutOf } from './browsers.ts'
+import { Browsers, shortcutOf } from './browsers.ts'
+import { L } from './strings.ts'
 import * as history from './history.ts'
 import { onSettingsChange, settings, update as updateSettings } from './settings.ts'
 import { mcpStatus, syncMcp } from './mcp.ts'
@@ -237,7 +239,7 @@ async function openSite(path: string) {
     // Pencere kapanınca hesap bilgisi tazeleniyor: kullanıcı paket almış ya da bakiye yüklemiş olabilir.
     s.on('closed', () => void auth.refresh())
   }
-  await site.loadURL(`${auth.SHARE97}/api/v1/worker/web?${new URLSearchParams({ next: path.startsWith('/') ? path : '/' })}`, { extraHeaders: `Authorization: Bearer ${key}\n` })
+  await site.loadURL(`${auth.SHARE97}/api/v1/worker/web?${new URLSearchParams({ next: sitePath(pickLocale(app.getLocale()), path) })}`, { extraHeaders: `Authorization: Bearer ${key}\n` })
   site.show()
   site.focus()
 }
@@ -338,6 +340,14 @@ function registerIpc() {
   handle('activity:list', () => deviceActivity())
 
   handle('site:open', (path) => openSite(str(path, 500)))
+  handle('workers:rename', async (id, name) => {
+    await auth.server(`/api/v1/worker/workers/${encodeURIComponent(str(id, 200))}`, { method: 'PATCH', body: { name: str(name, 60) } })
+    await accounts.syncAccounts()
+  })
+  handle('workers:remove', async (id) => {
+    await auth.server(`/api/v1/worker/workers/${encodeURIComponent(str(id, 200))}`, { method: 'DELETE' })
+    await accounts.syncAccounts()
+  })
 
   const b = () => browsers!
   handle('browsers:state', () => b().state())

@@ -20,15 +20,19 @@ npm run dist       # Windows kurulum dosyası: dist/
 | **Chrome** | `share97-chrome` eklentisiyle bağlanan Chrome profilleri. |
 | **Yedekler** | Bütün ayarlar ve tarayıcı çerezleri tek `.share97` dosyasında (brotli ile sıkıştırılmış), `Belgeler\Share97\Yedekler` altında: yeni yedek, var olanı güncelle, klasörde göster, dosyadan ekle, geri yükle (önce bugünkü durum ayrıca yedeklenir). `src/main/backup.ts`. |
 | **Paket ve kredi** | Ücretsiz / Pro paket, günlük hak, ek kredi, yapay zekâ bakiyesi; satın alma sitenin faturalama sayfasında. |
-| **Ayarlar** | Hesap, arka planda çalışma, modeller, agent, tema, tarayıcılar… |
+| **Ayarlar** | Hesap, arka planda çalışma, modeller, agent, tema, tarayıcılar… Hesap bölümündeki **Share97 hesabı** kartı sitenin Ayarlar sayfasını açar (marka sesi, otomatik içerik, e-posta izinleri, veri indirme, hesabı silme). |
+| **Share97 sitesi** | Takvim, Analiz, Marketplace, Arama: uygulamada çizilmez, site penceresinde (bu cihazın oturumuyla) açılır. |
 
-Üst şeritteki sekmeler uygulamanın tarayıcılarıdır: her hesap kendi tarayıcısında (kendi çerez deposu) durur.
+Üst şeritteki sekmeler uygulamanın tarayıcılarıdır: her hesap kendi tarayıcısında (kendi çerez deposu) durur. Sitede yayındaki duyurular (`/api/v1/worker/me?lang=` → `announcements`) şeridin altında görünür; kapatılan duyuru bu bilgisayarda hatırlanır.
+
+**Diller**: arayüz sitedekilerle aynı on beş dilde (`src/shared/locales.ts`); arayüz metinleri `src/renderer/src/locales/<dil>.ts`, ana sürecin metinleri (menü, bildirim, günlük) `src/main/locales/<dil>.ts`. Biçim Türkçe dosyadan (`Dict`, `Strings`): yeni anahtar eklenince typecheck bütün dillerde eksik olanı gösterir. Dil sistemin dilinden; Arapçada sayfa sağdan sola (`dir`). Site penceresi de aynı dilin önekiyle açılır (`sitePath`).
 
 ## Share97'ye bağlanma
 
 - `src/main/auth.ts`: OAuth 2.0 + PKCE (S256), `127.0.0.1` dönüş adresi → `POST /api/connect/token` → **cihaz anahtarı**. Anahtar Windows DPAPI ile şifreli, arayüze hiç gitmez. Sunucuda anahtar = Worker (`/workers` sayfasında bilgisayarın adıyla görünür); orada kaldırılırsa uygulama girişe döner.
 - Hesap bilgisi `GET /api/v1/worker/me`: paket, kredi, yapay zekâ bakiyesi, sınırlar.
-- Site (faturalama, akış düzenleyicisi) `/api/v1/worker/web` ile bu cihazın oturumuyla ayrı pencerede açılır.
+- Site (faturalama, akış düzenleyicisi, takvim, analiz, marketplace, arama, site ayarları) `/api/v1/worker/web` ile bu cihazın oturumuyla ayrı pencerede açılır.
+- Akışlar ekranındaki cihaz listesi öteki cihazları yeniden adlandırır ya da kaldırır (`PATCH`/`DELETE /api/v1/worker/workers/<id>`); bu cihaz oradan kaldırılmaz, Ayarlar'da çıkış yapılır.
 
 ## Yapay zekâ
 
@@ -47,7 +51,7 @@ Oturumlar cihazdan çıkmaz; sunucuda yalnız hesabın adı ve bu cihaza bağlı
 
 **Akışları bu uygulama çalıştırır; sunucuda yalnız denetim ve kayıt durur.** Akışın tanımı (graf, zamanlama, hesaplar, açık/kapalı, hangi cihaz) sunucudadır ve sitedeki düzenleyiciyle aynıdır; zamanı gelen akışı ise **bu cihaz** yürütür (`src/main/runner.ts`, saf motoru `src/shared/workflow.ts`): grafı yürür, içeriği kendi klasöründen alır, her hesaptaki işi agent'a yaptırır ve çalışmayı adım adım sunucuya yazar (`POST /api/v1/worker/runs` → `PATCH /api/v1/worker/runs/<id>` → `POST …/publications`). Sunucu cihaza iş göndermez.
 
-- **Zamanlama** (`schedule`, `dueSlot`): `src/main/device.ts` 15 saniyede bir yoklar (`POST /api/v1/worker/poll`: cihaz canlı işaretlenir, siteden istenen "Şimdi çalıştır"lar gelir) ve bu cihaza atanmış, açık her akışın son bakıştan bu yana saati gelen yuvasını başlatır. Uygulama kapalıyken kaçan yuvalar dönüşte **bir kez** telafi edilir (yalnız sonuncusu, bir günden eskisi değil). Aynı yuvayı sunucu ikinci kez açtırmaz (`409`): iki cihaz ya da yeniden başlayan uygulama çift paylaşım yapmaz.
+- **Zamanlama** (`schedule`, `dueSlot`): `src/main/device.ts` 15 saniyede bir yoklar (`POST /api/v1/worker/poll`: cihaz canlı işaretlenir, siteden istenen "Şimdi çalıştır"lar gelir) ve bu cihaza atanmış, açık her akışın son bakıştan bu yana saati gelen yuvasını başlatır. Yoklama ayrıca sitenin **eşitleme sürümünü** (`rev`) getirir: sitede akış, hesap ya da cihaz değiştiyse cihaz beklemeden eşitler (sitedeki düzenleme 15 sn içinde cihazda). Siteden **Durdur** (`stop`): akışın sırada bekleyen çalışması düşer, süren çalışmanın agent sohbetleri durur ve sonraki düğümü çalışmaz; kayda `stopped from the site` yazılır (`runner.ts` `stopFlow`). Uygulama kapalıyken kaçan yuvalar dönüşte **bir kez** telafi edilir (yalnız sonuncusu, bir günden eskisi değil). Aynı yuvayı sunucu ikinci kez açtırmaz (`409`): iki cihaz ya da yeniden başlayan uygulama çift paylaşım yapmaz.
 - **Her hesap işi bir sohbet sürecidir** (`Agent.task`): iş başladığı anda sohbet ekranı o sohbette açılır (hesabın tarayıcısı da), kullanıcı agent'ın ne yaptığını canlı izler. Çalışma kaydı sohbete bağlıdır (`chatIds`): Akışlar ekranındaki "Son çalışmalar" ve etkinlik günlüğü işin sohbetini açar.
 - **İş yalnız hesabın bağlantıda tanımlı tarayıcısında** (çerezleri taşıyan uygulama tarayıcısı ya da Chrome profili) çalışır: tarayıcı iş başlamadan açılır ve agent ona kilitlenir (`Ctx.only`, `lockProblem`). Tarayıcıya erişilemiyorsa (oturum düşmüş, Chrome kapalı) iş başlamaz, hesap sunucuya `expired` bildirilir ve kullanıcı uyarılır: Windows bildirimi (tıklayınca giriş ekranı açılır) ve Akışlar ekranında "Yeniden giriş yap" uyarısı.
 - **Atlanan çalışma nedenini yazar** (`skipReason`): hiçbir hesapta iş yapılmadıysa neden çalışma kaydına ve ekrana yazılır (klasörde içerik kalmadı, içerik hesap adımına ulaşmadı, içerik adımı yalnız hata çıkışından bağlı…). Hesaba ulaşmayan içerik yanmaz: `pending`e döner, nedeni notunda.

@@ -447,7 +447,7 @@ function ToolTitle({ p, ms }: { p: Extract<Part, { type: 'tool' }>; ms?: number 
         </span>
       )}
       {ms !== undefined && (
-        <span className="ml-auto shrink-0 text-xs tabular-nums text-muted" title={p.writeMs ? `${t.writtenIn} ${t.seconds(p.writeMs)}` : undefined}>
+        <span className="ms-auto shrink-0 text-xs tabular-nums text-muted" title={p.writeMs ? `${t.writtenIn} ${t.seconds(p.writeMs)}` : undefined}>
           {p.writeMs ? `${t.seconds(p.writeMs)} + ` : ''}
           {t.seconds(ms)}
         </span>
@@ -737,7 +737,7 @@ function Composer({ chatId, running, cost, queued, dataCount, onData, lastSent, 
               <Loader2 className="size-3.5 animate-spin" /> {t.uploading}
             </span>
           )}
-          <span className="ml-auto" />
+          <span className="ms-auto" />
           {dataCount > 0 && (
             <button className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted hover:bg-raised hover:text-fg" title={t.chatData} aria-label={t.chatData} onClick={onData}>
               <Database className="size-3.5" /> {dataCount}

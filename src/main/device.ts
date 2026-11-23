@@ -3,7 +3,7 @@ import { lastSync, localAccounts, syncAccounts } from './accounts.ts'
 import type { Agent } from './agent/index.ts'
 import { autoStep } from './auto.ts'
 import { apiKey, server, ServerError } from './auth.ts'
-import { initRunner, runNow, runnerBusy, schedule } from './runner.ts'
+import { initRunner, inRunQueue, runNow, runnerBusy, schedule, stopFlow } from './runner.ts'
 
 /**
  * **Bu kurulum bir Worker.** Akışları sunucu değil bu uygulama çalıştırır (bkz. `runner.ts`): `POLL_MS`de bir
@@ -20,6 +20,8 @@ const SYNC_MS = 60_000
 let agent: Agent
 let emit: (a: ActivityEntry[]) => void = () => {}
 let polling = false
+/** Sitenin son eşitleme sürümü (`rev`): değişince akışlar ve hesaplar beklemeden eşitlenir. */
+let rev = ''
 let autoBusy = false
 let running = 0
 const activity: ActivityEntry[] = []
@@ -48,17 +50,20 @@ async function tick() {
   polling = true
   try {
     if (Date.now() - lastSync() > SYNC_MS) await syncAccounts()
-    const { run } = await server<{ run?: string[] }>('/api/v1/worker/poll', { body: { accountIds: localAccounts().map((l) => l.id) } })
-    // Siteden "Şimdi çalıştır": akışın güncel hâliyle çalışsın diye önce eşitlenir.
-    if (run?.length) {
+    const poll = await server<{ run: string[]; stop: string[]; rev: string }>('/api/v1/worker/poll', { body: { accountIds: localAccounts().map((l) => l.id) } })
+    // Siteden "Durdur": önce, aynı yoklamadaki "Şimdi çalıştır" durdurulmasın.
+    for (const id of poll.stop) stopFlow(id)
+    // Sitede bir şey değiştiyse (akış, hesap, cihaz) ya da "Şimdi çalıştır" geldiyse hemen eşitlenir: akış güncel hâliyle çalışır.
+    if (poll.rev !== rev || poll.run.length) {
+      rev = poll.rev
       await syncAccounts()
-      for (const id of run) void runNow(id).catch((e) => log((e as Error).message, 'error'))
     }
+    for (const id of poll.run) void runNow(id).catch((e) => log((e as Error).message, 'error'))
     schedule()
     // Beklenmiyor: paylaşım dakikalarca sürer; yoklama (cihazın canlılığı, "Şimdi çalıştır", zamanlama) onu beklemesin.
     if (!autoBusy) {
       autoBusy = true
-      void autoStep(agent, exclusive)
+      void autoStep(agent, (fn) => inRunQueue(() => exclusive(fn)))
         .then((auto) => auto && log(auto.text, auto.ok ? 'ok' : 'error', auto.chatId), (e) => console.error('[auto]', (e as Error).message))
         .finally(() => (autoBusy = false))
     }

@@ -55,6 +55,10 @@ const api: Api = {
   site: {
     open: (path) => call('site:open', path),
   },
+  workers: {
+    rename: (id, name) => call('workers:rename', id, name),
+    remove: (id) => call('workers:remove', id),
+  },
   browsers: {
     state: () => call('browsers:state'),
     create: (name, url, incognito) => call('browsers:create', name, url, incognito),

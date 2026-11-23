@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
-import { app, shell } from 'electron'
+import { shell } from 'electron'
 import type { FlowTemplate, Overview } from '../shared/types.ts'
 import { contentWarnings, mediaName, EXAMPLE_NOTE, MAX_CAPTION, MAX_MEDIA, resultNote, stalePublishing, generationMessages, isContentFolder, usesContents, isExample, isWorkflowId, MAX_GENERATE, nextFolder, parseGenerated, parseLocalUrl, parseStatus, pickContent, statusText, type ContentSettings, type ContentStatus, type GenerateInput, type LocalContent, type LocalMedia } from '../shared/contents.ts'
 import { server } from './auth.ts'
@@ -10,6 +10,7 @@ import { apiJson } from './gateway.ts'
 import { DEFAULT_MODEL, settings } from './settings.ts'
 import { inside, kindOf } from './paths.ts'
 import { dataPath, readJson, writeJson } from './store.ts'
+import { L } from './strings.ts'
 import * as ws from './workspace.ts'
 
 /**
@@ -237,7 +238,7 @@ export const openContents = async (workflowId: string, name: string) => void (aw
 
 /* ---------------- Eşitleme ---------------- */
 
-const exampleName = () => (app.getLocale().toLowerCase().startsWith('tr') ? 'Örnek akış' : 'Example workflow')
+const exampleName = () => L().example
 
 /** Sunucuda bu cihaza atanmış, cihazdaki hesaplarla dolu, durdurulmuş hazır bir akış açar (`template`, bkz. `shared/types.ts`); içerik klasörü bir sonraki eşitlemede kurulur. */
 export const createLocalWorkflow = (name: string, template: FlowTemplate = 'post') => server<{ id: string }>('/api/v1/worker/workflows', { body: { name, template, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone } })

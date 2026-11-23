@@ -82,7 +82,12 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
       ) : (
         <>
           <Card>
-            <h2 className="text-[1.75rem]">{t.flows.templates}</h2>
+            <div className="flex flex-wrap items-baseline gap-3">
+              <h2 className="text-[1.75rem]">{t.flows.templates}</h2>
+              <button type="button" className="ms-auto flex items-center gap-1.5 text-sm text-muted underline-offset-4 hover:text-fg hover:underline" onClick={() => void api().site.open('/workflows')}>
+                {t.flows.moreTemplates} <ExternalLink className="size-3.5" />
+              </button>
+            </div>
             <p className="mb-3 mt-0.5 text-xs text-muted">{t.flows.templatesHint}</p>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {FLOW_TEMPLATES.map((id) => {
@@ -204,7 +209,19 @@ export function Workflows({ onOpenChat }: { onOpenChat: (chatId: string) => void
               {[...ov.workers]
                 .sort((a, b) => Number(b.id === ov.me) - Number(a.id === ov.me) || Number(b.online) - Number(a.online))
                 .map((k) => (
-                  <Device key={k.id} icon={<Monitor className="size-4" />} name={k.name} mine={k.id === ov.me} online={k.online} seen={k.lastUsedAt} accounts={k.accounts} flows={k.workflows.length} />
+                  <Device
+                    key={k.id}
+                    icon={<Monitor className="size-4" />}
+                    name={k.name}
+                    mine={k.id === ov.me}
+                    online={k.online}
+                    seen={k.lastUsedAt}
+                    accounts={k.accounts}
+                    flows={k.workflows.length}
+                    busy={busy === k.id}
+                    onRename={(name) => act(k.id, api().workers.rename(k.id, name))}
+                    onRemove={k.id === ov.me ? undefined : () => act(k.id, api().workers.remove(k.id), () => toast(t.flows.deviceRemoved(k.name)))}
+                  />
                 ))}
               {(ov.server.accounts.length > 0 || ov.server.workflows.length > 0) && <Device icon={<Server className="size-4" />} name={t.flows.serverAccounts} mine={false} online seen={null} accounts={ov.server.accounts} flows={ov.server.workflows.length} />}
             </div>
@@ -342,7 +359,7 @@ function ScheduleRow({ w, accounts, disabled, onSchedule, onAccounts }: { w: Ove
             <Check className="size-3.5" /> {t.save}
           </button>
         )}
-        <span className="ml-auto">{w.timezone}</span>
+        <span className="ms-auto">{w.timezone}</span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <span>{t.flows.shareTo}</span>
@@ -409,7 +426,7 @@ function ContentRow({ w, ov, platforms, syncedAt, disabled, onChange, onUseThisD
           {t.flows.repeat}
         </label>
         {here && (
-          <span className="ml-auto flex gap-2">
+          <span className="ms-auto flex gap-2">
             <button className={button} onClick={() => setAdding(true)}>
               <Plus className="size-3.5" /> {t.flows.addContent}
             </button>
@@ -615,7 +632,8 @@ function GenerateForm({ workflowId, items, onClose, onDone }: { workflowId: stri
 }
 
 /** Bir cihaz (Worker). Bu bilgisayar (`mine`) çerçevesi ve etiketiyle ayrışır: çalışan uygulama o. */
-function Device({ icon, name, mine, online, seen, accounts, flows }: { icon: React.ReactNode; name: string; mine: boolean; online: boolean; seen: string | null; accounts: { id: string; platform: string; handle: string }[]; flows: number }) {
+/** Cihaz kartı. `onRename` verilirse ad yerinde değişir; `onRemove` yalnız öteki cihazlarda (bu cihaz Ayarlar'dan çıkış yapar). */
+function Device({ icon, name, mine, online, seen, accounts, flows, busy = false, onRename, onRemove }: { icon: React.ReactNode; name: string; mine: boolean; online: boolean; seen: string | null; accounts: { id: string; platform: string; handle: string }[]; flows: number; busy?: boolean; onRename?(name: string): void; onRemove?(): void }) {
   return (
     <div className={`rounded-lg border p-3 ${mine ? 'border-brand bg-brand/10' : 'border-line'}`} aria-current={mine || undefined}>
       {mine && (
@@ -625,8 +643,13 @@ function Device({ icon, name, mine, online, seen, accounts, flows }: { icon: Rea
       )}
       <div className="flex items-center gap-2">
         {icon}
-        <p className={`min-w-0 flex-1 truncate text-sm ${mine ? 'font-semibold' : 'font-medium'}`}>{name}</p>
+        <div className="min-w-0 flex-1">{onRename ? <FlowName name={name} disabled={busy} onRename={onRename} /> : <p className={`truncate text-sm ${mine ? 'font-semibold' : 'font-medium'}`}>{name}</p>}</div>
         <Pill tone={online ? 'ok' : 'muted'}>{online ? t.online : t.offline}</Pill>
+        {onRemove && (
+          <ConfirmButton className={iconButton} title={t.flows.removeDevice} label={t.flows.removeDevice} onConfirm={onRemove}>
+            <Trash2 className="size-3.5" />
+          </ConfirmButton>
+        )}
       </div>
       <p className="mt-1 text-xs text-muted">
         {t.flows.accountsCount(accounts.length)}, {t.flows.flowsCount(flows)}

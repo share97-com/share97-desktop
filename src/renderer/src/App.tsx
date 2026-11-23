@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Account, AuthState, Shortcut } from '../../shared/types.ts'
-import { ArchiveRestore, Cable, Coins, MessageSquare, Puzzle, Settings as Gear, Workflow } from 'lucide-react'
+import { ArchiveRestore, Cable, CalendarDays, ChartColumn, Coins, ExternalLink, MessageSquare, Puzzle, Search, Settings as Gear, Store, Workflow } from 'lucide-react'
+import { Announcements } from './Announcements.tsx'
 import { Backups } from './Backups.tsx'
 import { BrowserBar, BrowserStrip } from './Bars.tsx'
 import { Billing, balanceText, planLabel } from './Billing.tsx'
@@ -32,6 +33,14 @@ export function App() {
 
 export type View = 'home' | 'connections' | 'workflows' | 'chrome' | 'backup' | 'billing' | 'settings'
 
+/** Sitenin bu uygulamada çizilmeyen sayfaları: cihazın oturumuyla site penceresinde açılır (`site:open`). */
+const SITE_LINKS = [
+  ['/calendar', CalendarDays, 'calendar'],
+  ['/analytics', ChartColumn, 'analytics'],
+  ['/marketplace', Store, 'marketplace'],
+  ['/search', Search, 'search'],
+] as const
+
 /**
  * Kenar çubuğu: uygulamanın ekranları. Sohbet (agent), Bağlantılar (sosyal hesaplar), Akışlar
  * (sunucuyla eşit; cihazlar ve etkinlik de orada), Chrome (eklenti), altta paket/bakiye
@@ -50,7 +59,7 @@ function Sidebar({ account, view, onView }: { account: Account; view: View; onVi
       key={v}
       type="button"
       aria-current={view === v ? 'page' : undefined}
-      className={`relative flex h-9 items-center gap-3 rounded-md px-3 text-left text-sm transition-colors duration-[var(--dur-micro)] ${view === v ? 'bg-raised font-medium text-fg before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-brand' : 'text-muted hover:bg-raised/50 hover:text-fg'}`}
+      className={`relative flex h-9 items-center gap-3 rounded-md px-3 text-left text-sm transition-colors duration-[var(--dur-micro)] ${view === v ? 'bg-raised font-medium text-fg before:absolute before:inset-y-2 before:start-0 before:w-0.5 before:rounded-full before:bg-brand' : 'text-muted hover:bg-raised/50 hover:text-fg'}`}
       onClick={() => onView(v)}
     >
       <Icon className={`size-4 shrink-0 ${view === v ? 'text-brand' : ''}`} strokeWidth={1.5} />
@@ -59,13 +68,22 @@ function Sidebar({ account, view, onView }: { account: Account; view: View; onVi
     </button>
   )
   return (
-    <nav className="flex w-56 shrink-0 flex-col gap-1 border-r border-line bg-panel px-3 pb-3 pt-4" aria-label="Share97">
+    <nav className="flex w-56 shrink-0 flex-col gap-1 border-e border-line bg-panel px-3 pb-3 pt-4" aria-label="Share97">
       {item('home', MessageSquare, t.nav.chat)}
       {item('connections', Cable, t.nav.connections)}
       {item('workflows', Workflow, t.nav.workflows)}
       {item('chrome', Puzzle, t.nav.chrome)}
       <div className="my-2 border-t border-line" />
       {item('backup', ArchiveRestore, t.nav.backup)}
+      <div className="my-2 border-t border-line" />
+      <p className="px-3 pb-1 text-xs text-muted">{t.nav.site}</p>
+      {SITE_LINKS.map(([path, Icon, key]) => (
+        <button key={path} type="button" className="flex h-9 items-center gap-3 rounded-md px-3 text-left text-sm text-muted transition-colors duration-[var(--dur-micro)] hover:bg-raised/50 hover:text-fg" onClick={() => void api().site.open(path)}>
+          <Icon className="size-4 shrink-0" strokeWidth={1.5} />
+          <span className="min-w-0 flex-1 truncate">{t.nav[key]}</span>
+          <ExternalLink className="size-3 shrink-0 opacity-60" strokeWidth={1.5} aria-hidden />
+        </button>
+      ))}
       <div className="mt-auto flex flex-col gap-1">
         <button type="button" aria-current={view === 'billing' ? 'page' : undefined} className={`mb-2 rounded-md border px-3.5 pb-3 pt-2.5 text-left transition-colors duration-[var(--dur-micro)] ${view === 'billing' ? 'border-line-2 bg-raised' : 'border-line hover:border-line-2'}`} onClick={() => onView('billing')}>
           <span className="flex items-center gap-2 text-xs text-muted">
@@ -165,6 +183,7 @@ function Shell({ account }: { account: Account }) {
   return (
     <div className="flex h-full flex-col">
       <BrowserStrip state={state} account={account} view={active ? null : view} onView={show} onOverlay={overlay} />
+      {!active && <Announcements items={account.announcements} />}
       {active && (
         <>
           <BrowserBar browser={active} onOverlay={overlay} />

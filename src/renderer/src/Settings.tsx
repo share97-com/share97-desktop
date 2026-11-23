@@ -42,7 +42,7 @@ export function Settings({ account, browsers, onBilling, initial = 'account' }: 
   useEffect(() => setSection(initial), [initial])
   return (
     <div className="absolute inset-0 flex">
-      <nav className="flex w-60 shrink-0 flex-col gap-0.5 border-r border-line bg-panel p-3" aria-label={t.settings}>
+      <nav className="flex w-60 shrink-0 flex-col gap-0.5 border-e border-line bg-panel p-3" aria-label={t.settings}>
         <h1 className="mb-3 px-3 pt-1 text-[2rem]">{t.settings}</h1>
         {(Object.keys(t.sections) as SectionId[]).map((id) => {
           const Icon = ICONS[id]
@@ -87,7 +87,7 @@ function AccountSection({ account, onBilling }: { account: Account; onBilling: (
             <p className="truncate font-medium">{account.name || account.email}</p>
             <p className="truncate text-sm text-muted">{account.email}</p>
           </div>
-          <div className="ml-auto text-right">
+          <div className="ms-auto text-right">
             <p className="flex items-baseline justify-end gap-1.5">
               <span className="figure text-[2.6rem]">{balanceText(account)}</span>
             </p>
@@ -98,7 +98,7 @@ function AccountSection({ account, onBilling }: { account: Account; onBilling: (
           <button className="btn-primary whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium" onClick={onBilling}>
             {t.nav.billing}
           </button>
-          <ConfirmButton className="ml-auto whitespace-nowrap rounded-full border border-danger/40 px-3.5 py-1.5 text-sm text-danger hover:bg-danger/10" onConfirm={() => void api().auth.signOut()}>
+          <ConfirmButton className="ms-auto whitespace-nowrap rounded-full border border-danger/40 px-3.5 py-1.5 text-sm text-danger hover:bg-danger/10" onConfirm={() => void api().auth.signOut()}>
             {t.signOut}
           </ConfirmButton>
         </div>
@@ -119,6 +119,15 @@ function AccountSection({ account, onBilling }: { account: Account; onBilling: (
           <PowerRow />
         </Card>
       )}
+      <Card title={t.site.title} hint={t.site.hint}>
+        <div className="flex flex-wrap gap-2">
+          {(['brand', 'autoContent', 'email', 'export', 'delete'] as const).map((k) => (
+            <button key={k} type="button" className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line-2 px-3 py-1.5 text-sm hover:bg-raised" onClick={() => void api().site.open('/settings')}>
+              {t.site.items[k]} <ExternalLink className="size-3.5 text-muted" />
+            </button>
+          ))}
+        </div>
+      </Card>
     </>
   )
 }
