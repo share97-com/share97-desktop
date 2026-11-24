@@ -500,7 +500,6 @@ export const sv: Dict = {
       'Klicka på Share97-ikonen i verktygsfältet och ge den här Chrome ett namn.',
       'Chrome visas här som "Väntar på godkännande": godkänn den.',
     ],
-    fileAccess: 'För att låta agenten ladda upp filer på sidor: öppna tilläggets "Information" på chrome://extensions och slå på "Tillåt åtkomst till fil-URL:er".',
     openFolder: 'Öppna mapp',
     openExtensions: 'Öppna tilläggssidan i Chrome',
     copyPath: 'Kopiera sökväg',

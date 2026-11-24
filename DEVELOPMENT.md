@@ -119,3 +119,5 @@ Sohbet modeli **MCP** (`MCP_MODEL`): sohbete yazılan mesajı uygulamanın model
 `browser_cdp` (yalnız MCP listesinde): hazır araçların kapsamadığı her tarayıcı özelliği için ham Chrome DevTools Protocol komutu; onay politikasına bağlı.
 
 MCP sunucusunun ayrıntıları: `initialize` uygulama sürümünü ve kısa kullanım kılavuzunu (`INSTRUCTIONS`) verir; `prompts` listesinde `serve_chat` vardır; değiştirmeyen araçlar `readOnlyHint` taşır; aynı tarayıcıya gelen çağrılar sıraya girer; metin sonucu 80 bin karakterde kesilir, görsel 1568 piksele küçültülür; akış cevabında 15 saniyede bir yaşam sinyali gider; son bağlanan istemci MCP ekranında görünür.
+
+Chrome sekmelerinde dosya yükleme bayt olarak (`src/main/chrome/driver.ts`, `setFiles`): `DOM.setFileInputFiles` eklentiden yalnız "Dosya URL'lerine erişim" açıkken çalıştığı için dosyalar 4 MB'lık parçalarla sayfaya gönderilir, orada `File` yapılıp `DataTransfer` ile alana konur ve `input` / `change` olayları gönderilir. İzin ve boyut sınırı yok. Uygulamanın kendi tarayıcıları `DOM.setFileInputFiles` kullanır. `upload_files` sonucu alan tek dosya alıyorsa ya da `accept` türü kabul etmiyorsa agent'a not düşer.

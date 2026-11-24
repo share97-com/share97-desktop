@@ -37,6 +37,16 @@ const KINDS: Record<string, FileKind> = {
 
 export const kindOf = (path: string): FileKind => KINDS[extname(path).toLowerCase()] ?? 'document'
 
+/** Sayfaya bayt olarak verilen dosyanın türü (`File.type`): yükleyiciler türe bakıyor. */
+const MIMES: Record<string, string> = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.heic': 'image/heic', '.avif': 'image/avif', '.svg': 'image/svg+xml',
+  '.mp4': 'video/mp4', '.m4v': 'video/x-m4v', '.mov': 'video/quicktime', '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.opus': 'audio/opus', '.aac': 'audio/aac', '.flac': 'audio/flac', '.m4a': 'audio/mp4',
+  '.pdf': 'application/pdf', '.csv': 'text/csv', '.txt': 'text/plain', '.json': 'application/json', '.zip': 'application/zip',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+}
+export const mimeOf = (path: string) => MIMES[extname(path).toLowerCase()] ?? 'application/octet-stream'
+
 /** Dosya adı olarak güvenli parça (Windows'un yasak karakterleri, baştaki nokta). */
 export const safeName = (name: string) =>
   name

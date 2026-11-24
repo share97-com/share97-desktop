@@ -36,6 +36,8 @@ export type Driver = {
   /** JPEG data URL. */
   screenshot(): Promise<string>
   pdf(): Promise<Uint8Array>
+  /** Dosyalar (yerel yollar) `objectId`deki `input[type=file]`e; sayfa `input` ve `change` olaylarını görüyor. */
+  setFiles(objectId: string, files: string[]): Promise<void>
   /** Görünümün ekrandaki gerçek genişliği (CSS pikselinden ekran pikseline çevirmek için); yoksa 1:1. */
   viewWidth?: number
   /**
@@ -142,6 +144,9 @@ export function electronDriver(wc: WebContents, viewWidth?: number): Driver {
       return `data:image/jpeg;base64,${data}`
     },
     pdf: async () => new Uint8Array(await wc.printToPDF({ printBackground: true })),
+    async setFiles(objectId, files) {
+      await this.cdp('DOM.setFileInputFiles', { files, objectId })
+    },
   }
 }
 
@@ -445,12 +450,27 @@ const BEST_FILE_INPUT = (kinds: string[], inside: string | null) => `(() => { ${
   return all.map((el, i) => [el, score(el, i)]).filter(([el]) => kinds.every((k) => takes(el, k)) || kinds.length > 1).sort((a, b) => b[1] - a[1])[0]?.[0] || null
 })()`
 
-async function setFiles(d: Driver, expression: string, files: string[]) {
+/** Dosya alanının özellikleri: agent'a "tek dosya alıyor" / "bu türü kabul etmiyor" uyarısı için. */
+const INPUT_INFO = 'function () { return { multiple: this.multiple, accept: this.accept || "", count: this.files ? this.files.length : 0 } }'
+
+/** Dosyaları alana koyar; alan yoksa null, varsa agent'a kısa not (boş ya da uyarı). */
+async function setFiles(d: Driver, expression: string, files: string[], kinds: string[]): Promise<string | null> {
   const { result } = await d.cdp<{ result: { objectId?: string; subtype?: string } }>('Runtime.evaluate', { expression })
-  if (!result.objectId || result.subtype === 'null') return false
-  await d.cdp('DOM.setFileInputFiles', { files, objectId: result.objectId })
+  if (!result.objectId || result.subtype === 'null') return null
+  const objectId = result.objectId
+  const info = async () => (await d.cdp<{ result: { value: { multiple: boolean; accept: string; count: number } } }>('Runtime.callFunctionOn', { objectId, functionDeclaration: INPUT_INFO, returnByValue: true })).result.value
+  const before = await info()
+  await d.setFiles(objectId, files)
   await settle(d)
-  return true
+  const notes: string[] = []
+  if (files.length > 1 && !before.multiple) notes.push(`this file input takes ONE file (no "multiple"): the site may keep only the first; upload the others one by one (open "Add more" / "+" and upload_files again)`)
+  const a = before.accept.toLowerCase()
+  const refused = kinds.filter((k) => a && !a.includes('*/*') && !(ACCEPTS[k] ?? []).some((x) => a.includes(x)))
+  if (refused.length) notes.push(`the input accepts "${before.accept}", not ${refused.join('/')}: check the preview, the site may reject it`)
+  // Sayfa alanı olay içinde boşalttıysa (React yükleyiciler dosyayı alıp sıfırlıyor) bu sorun değil; okunamadıysa yalnız bilgi.
+  const after = await info().catch(() => null)
+  if (after && after.count === 0) notes.push('the input is empty again (many sites take the files and reset it): confirm with look_at_page that the preview appeared')
+  return notes.length ? ` (note: ${notes.join('; ')})` : ''
 }
 
 /**
@@ -463,16 +483,19 @@ export async function uploadFiles(d: Driver, ref: Ref | undefined, files: string
   if (r && /^f\d+\./.test(r)) throw new Error('File inputs inside frames are not supported; open the frame URL in a tab instead.')
   if (r) {
     const isInput = await d.evaluate<boolean>(`(() => { const el = ${BY_REF(r)}; return !!el && el.tagName === 'INPUT' && el.type === 'file' })()`)
-    if (isInput && (await setFiles(d, BY_REF(r), files))) return `into the file input [${r}]`
+    const note = isInput ? await setFiles(d, BY_REF(r), files, kinds) : null
+    if (note !== null) return `into the file input [${r}]${note}`
   }
-  if (await setFiles(d, BEST_FILE_INPUT(kinds, r), files)) return "into the page's file input (found by itself)"
+  const found = await setFiles(d, BEST_FILE_INPUT(kinds, r), files, kinds)
+  if (found !== null) return `into the page's file input (found by itself)${found}`
   if (!r) throw new Error('No file input on this page. Open the upload dialog first (click "Upload" / "Select from computer"), or pass the ref of that button.')
   // Düğme alanı tıklamada oluşturuyor: dosya penceresi yakalanıyor, açılmıyor.
   await d.cdp('Page.enable').catch(() => {})
   const intercept = await d.cdp('Page.setInterceptFileChooserDialog', { enabled: true }).then(() => true, () => false)
   try {
     await click(d, r)
-    if (await setFiles(d, BEST_FILE_INPUT(kinds, null), files)) return `after clicking [${r}]`
+    const after = await setFiles(d, BEST_FILE_INPUT(kinds, null), files, kinds)
+    if (after !== null) return `after clicking [${r}]${after}`
   } finally {
     if (intercept) await d.cdp('Page.setInterceptFileChooserDialog', { enabled: false }).catch(() => {})
   }

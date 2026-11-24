@@ -500,7 +500,6 @@ export const en: Dict = {
       'Click the Share97 icon in the toolbar and give this Chrome a name.',
       'The Chrome appears here as "Waiting for approval": approve it.',
     ],
-    fileAccess: 'To let the agent upload files into pages: on chrome://extensions open the extension\'s "Details" and turn on "Allow access to file URLs".',
     openFolder: 'Open folder',
     openExtensions: 'Open the extensions page in Chrome',
     copyPath: 'Copy path',

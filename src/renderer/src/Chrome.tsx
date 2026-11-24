@@ -101,7 +101,6 @@ function InstallGuide({ state }: { state: ChromeState }) {
           </li>
         ))}
       </ol>
-      <p className="mt-4 rounded-lg bg-raised p-3 text-xs text-muted">{c.fileAccess}</p>
       {error && <p role="alert" className="mt-2 text-sm text-danger">{error}</p>}
     </Card>
   )

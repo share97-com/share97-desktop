@@ -500,7 +500,6 @@ export const nl: Dict = {
       'Klik op het Share97-pictogram in de werkbalk en geef deze Chrome een naam.',
       'De Chrome verschijnt hier als "Wacht op goedkeuring": keur hem goed.',
     ],
-    fileAccess: 'Zodat de agent bestanden in pagina\'s kan uploaden: open op chrome://extensions de "Details" van de extensie en zet "Toegang tot bestands-URL\'s toestaan" aan.',
     openFolder: 'Map openen',
     openExtensions: 'De extensiepagina in Chrome openen',
     copyPath: 'Pad kopiëren',

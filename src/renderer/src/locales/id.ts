@@ -500,7 +500,6 @@ export const id: Dict = {
       'Klik ikon Share97 di toolbar dan beri nama Chrome ini.',
       'Chrome muncul di sini sebagai "Menunggu persetujuan": setujui.',
     ],
-    fileAccess: 'Agar agen dapat mengunggah file ke halaman: di chrome://extensions buka "Details" ekstensi dan aktifkan "Allow access to file URLs".',
     openFolder: 'Buka folder',
     openExtensions: 'Buka halaman ekstensi di Chrome',
     copyPath: 'Salin jalur',

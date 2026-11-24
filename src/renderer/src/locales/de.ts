@@ -500,7 +500,6 @@ export const de: Dict = {
       'Klicke in der Symbolleiste auf das Share97-Symbol und gib diesem Chrome einen Namen.',
       'Das Chrome erscheint hier als „Wartet auf Genehmigung": Genehmige es.',
     ],
-    fileAccess: 'Damit der Agent Dateien in Seiten hochladen kann: Öffne auf chrome://extensions die „Details" der Erweiterung und schalte „Zugriff auf Datei-URLs zulassen" ein.',
     openFolder: 'Ordner öffnen',
     openExtensions: 'Erweiterungsseite in Chrome öffnen',
     copyPath: 'Pfad kopieren',

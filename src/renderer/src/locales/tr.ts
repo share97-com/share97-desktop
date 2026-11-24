@@ -500,7 +500,6 @@ export const tr = {
       'Araç çubuğundaki Share97 simgesine bas, bu Chrome\'a bir ad ver.',
       'Chrome burada "Onay bekliyor" olarak görünür: Onayla.',
     ],
-    fileAccess: 'Agent\'ın sayfalara dosya yükleyebilmesi için: chrome://extensions içinde eklentinin "Ayrıntılar" sayfasından "Dosya URL\'lerine erişime izin ver"i aç.',
     openFolder: 'Klasörü aç',
     openExtensions: 'Chrome\'da eklentiler sayfasını aç',
     copyPath: 'Yolu kopyala',

@@ -500,7 +500,6 @@ export const pt: Dict = {
       'Clique no ícone do Share97 na barra de ferramentas e dê um nome a este Chrome.',
       'O Chrome aparece aqui como "Aguardando aprovação": aprove-o.',
     ],
-    fileAccess: 'Para o agente poder enviar arquivos em páginas: em chrome://extensions abra os "Detalhes" da extensão e ative "Permitir acesso a URLs de arquivo".',
     openFolder: 'Abrir pasta',
     openExtensions: 'Abrir a página de extensões no Chrome',
     copyPath: 'Copiar caminho',

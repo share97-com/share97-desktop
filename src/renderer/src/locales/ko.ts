@@ -500,7 +500,6 @@ export const ko: Dict = {
       '도구 모음의 Share97 아이콘을 클릭하고 이 Chrome에 이름을 지정합니다.',
       'Chrome이 "승인 대기 중"으로 여기에 표시됩니다. 승인하세요.',
     ],
-    fileAccess: '에이전트가 페이지에 파일을 업로드할 수 있게 하려면: chrome://extensions에서 확장 프로그램의 "세부정보"를 열고 "파일 URL에 대한 액세스 허용"을 켜세요.',
     openFolder: '폴더 열기',
     openExtensions: 'Chrome에서 확장 프로그램 페이지 열기',
     copyPath: '경로 복사',

@@ -500,7 +500,6 @@ export const ja: Dict = {
       'ツールバーの Share97 アイコンをクリックして、この Chrome に名前を付けます。',
       'Chrome が「承認待ち」としてここに表示されます。承認してください。',
     ],
-    fileAccess: 'エージェントがページにファイルをアップロードできるようにするには: chrome://extensions で拡張機能の「詳細」を開き、「ファイルの URL へのアクセスを許可する」をオンにします。',
     openFolder: 'フォルダーを開く',
     openExtensions: 'Chrome で拡張機能ページを開く',
     copyPath: 'パスをコピー',

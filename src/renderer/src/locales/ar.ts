@@ -500,7 +500,6 @@ export const ar: Dict = {
       'انقر أيقونة Share97 في شريط الأدوات وأعطِ Chrome هذا اسمًا.',
       'يظهر Chrome هنا بحالة "بانتظار الموافقة": وافق عليه.',
     ],
-    fileAccess: 'للسماح للوكيل برفع الملفات إلى الصفحات: في chrome://extensions افتح "Details" للإضافة وفعّل "Allow access to file URLs".',
     openFolder: 'فتح المجلد',
     openExtensions: 'فتح صفحة الإضافات في Chrome',
     copyPath: 'نسخ المسار',

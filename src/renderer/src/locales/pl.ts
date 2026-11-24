@@ -503,7 +503,6 @@ export const pl: Dict = {
       'Kliknij ikonę Share97 na pasku narzędzi i nadaj temu Chrome nazwę.',
       'Chrome pojawi się tu jako „Czeka na zatwierdzenie”: zatwierdź go.',
     ],
-    fileAccess: 'Aby agent mógł przesyłać pliki na strony: na chrome://extensions otwórz „Szczegóły” rozszerzenia i włącz „Zezwalaj na dostęp do adresów URL plików”.',
     openFolder: 'Otwórz folder',
     openExtensions: 'Otwórz stronę rozszerzeń w Chrome',
     copyPath: 'Kopiuj ścieżkę',

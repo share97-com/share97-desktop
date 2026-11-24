@@ -500,7 +500,6 @@ export const fr: Dict = {
       'Cliquez sur l’icône Share97 dans la barre d’outils et donnez un nom à ce Chrome.',
       'Le Chrome apparaît ici en « Attente d’approbation » : approuvez-le.',
     ],
-    fileAccess: 'Pour permettre à l’agent de téléverser des fichiers dans les pages : sur chrome://extensions, ouvrez les « Détails » de l’extension et activez « Autoriser l’accès aux URL de fichier ».',
     openFolder: 'Ouvrir le dossier',
     openExtensions: 'Ouvrir la page des extensions dans Chrome',
     copyPath: 'Copier le chemin',

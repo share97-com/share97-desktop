@@ -500,7 +500,6 @@ export const hi: Dict = {
       'टूलबार में Share97 आइकन पर क्लिक करें और इस Chrome को एक नाम दें।',
       'Chrome यहाँ "मंज़ूरी की प्रतीक्षा" के रूप में दिखता है: उसे मंज़ूर करें।',
     ],
-    fileAccess: 'एजेंट को पेजों में फ़ाइलें अपलोड करने देने के लिए: chrome://extensions पर एक्सटेंशन के "Details" खोलें और "Allow access to file URLs" चालू करें।',
     openFolder: 'फ़ोल्डर खोलें',
     openExtensions: 'Chrome में एक्सटेंशन पेज खोलें',
     copyPath: 'पाथ कॉपी करें',

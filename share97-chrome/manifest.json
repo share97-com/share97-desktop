@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Share97 for Chrome",
   "short_name": "Share97",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Connects this Chrome to Share97 Desktop: add the social media accounts you are signed in to here and let your Share97 workers and workflows operate them in your own tabs.",
   "minimum_chrome_version": "116",
   "background": {

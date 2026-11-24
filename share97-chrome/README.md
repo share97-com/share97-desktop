@@ -11,7 +11,7 @@ This Chrome extension connects your own Google Chrome to the **Share97 Desktop**
 5. Click the Share97 icon in the Chrome toolbar and give this Chrome a name, for example "Work Chrome".
 6. In Share97 Desktop the Chrome appears as **Waiting for approval**. Click **Approve**.
 
-Install it in every Chrome profile you want to use; each profile shows up in the app under its own name. To let the agent upload files into pages, open the extension's **Details** on `chrome://extensions` and turn on **Allow access to file URLs**.
+Install it in every Chrome profile you want to use; each profile shows up in the app under its own name.
 
 ## How it works
 
