@@ -41,6 +41,12 @@ export const AGENT_SETTLE_MS = 400
 
 const thumbsFile = () => dataPath('thumbnails.json')
 
+/** Sekmenin canlı sayfası. Kapatılmış görünümün `webContents`'i Electron'da `undefined` oluyor (uyuyan sekme). */
+const live = (t: Tab): WebContents | undefined => {
+  const wc = t.view.webContents as WebContents | undefined
+  return wc && !wc.isDestroyed() ? wc : undefined
+}
+
 /** Kalıcı tarayıcı diskte; gizli tarayıcı yalnız bellekte (`persist:` öneki yok). */
 const partition = (id: string, incognito: boolean) => (incognito ? `incognito-${id}` : `persist:browser-${id}`)
 
@@ -192,7 +198,7 @@ export class Browsers {
     if (isLayout(layout)) t.layout = layout
     const w = cleanWidth(width ?? null)
     if (w !== undefined) t.width = w
-    if (this.applyUa(b, t)) t.view.webContents.reload()
+    if (this.applyUa(b, t)) live(t)?.reload()
     this.show()
     this.changed()
     return { layout: t.layout, width: t.width, page_width: this.pageWidthOf(t) }
@@ -204,8 +210,7 @@ export class Browsers {
     const ua = t.layout === 'mobile' ? mobileUserAgent(chromeUserAgent(app.userAgentFallback)) : desktop
     if (ua === t.ua) return false
     t.ua = ua
-    const wc = t.view.webContents
-    if (!wc.isDestroyed()) wc.setUserAgent(ua)
+    live(t)?.setUserAgent(ua)
     return true
   }
 
@@ -220,7 +225,7 @@ export class Browsers {
     if (!ses) return
     const s = b.settings
     ses.setUserAgent(s.userAgent ?? chromeUserAgent(app.userAgentFallback), s.language ? acceptLanguages(s.language) : undefined)
-    for (const t of b.tabs) if (!t.asleep && this.applyUa(b, t)) t.view.webContents.reload()
+    for (const t of b.tabs) if (live(t) && this.applyUa(b, t)) live(t)!.reload()
     if (s.language) {
       const spell = ses.availableSpellCheckerLanguages.find((l) => l === s.language || l === s.language!.split('-')[0])
       if (spell) ses.setSpellCheckerLanguages([spell])
@@ -238,7 +243,7 @@ export class Browsers {
     const t = this.tab(browserId, tabId)
     if (!t || !isWebUrl(t.url) || t.url === 'about:blank') throw new Error('Open a web page first.')
     const target = /^[a-z]{2,3}(-[A-Za-z]{2,4})?$/.test(lang) ? lang : 'en'
-    void t.view.webContents.loadURL(`https://translate.google.com/translate?sl=auto&tl=${encodeURIComponent(target)}&u=${encodeURIComponent(t.url)}`).catch(() => {})
+    void live(t)?.loadURL(`https://translate.google.com/translate?sl=auto&tl=${encodeURIComponent(target)}&u=${encodeURIComponent(t.url)}`).catch(() => {})
   }
 
   /** Proxy denemesi: bu tarayıcının oturumuyla dış IP adresi. */
@@ -366,7 +371,7 @@ export class Browsers {
   private unmount(t: Tab) {
     if (t.asleep) return
     this.win.contentView.removeChildView(t.view)
-    if (!t.view.webContents.isDestroyed()) t.view.webContents.close()
+    live(t)?.close()
   }
 
   /**
@@ -379,9 +384,9 @@ export class Browsers {
     const visible = this.current()
     for (const b of this.list)
       for (const t of b.tabs) {
-        if (t.asleep) continue
-        const wc = t.view.webContents
-        if (t === visible || t.agent || t.audible || t.loading || wc.isDestroyed() || wc.isDevToolsOpened()) t.used = now
+        const wc = live(t)
+        if (t.asleep || !wc) continue
+        if (t === visible || t.agent || t.audible || t.loading || wc.isDevToolsOpened()) t.used = now
         else if (now - t.used > SLEEP_AFTER_MS) {
           const asleep = { entries: wc.navigationHistory.getAllEntries(), index: wc.navigationHistory.getActiveIndex() }
           this.unmount(t)
@@ -390,10 +395,14 @@ export class Browsers {
       }
   }
 
-  /** Uyuyan sekme kullanılacak: sayfası gezinme geçmişiyle (geri/ileri) yeniden yükleniyor; yazılmış form değerleri ve kaydırma geri gelmiyor. */
+  /**
+   * Uyuyan sekme kullanılacak: sayfası gezinme geçmişiyle (geri/ileri) yeniden yükleniyor; yazılmış form değerleri ve kaydırma geri gelmiyor.
+   * Sayfası kendiliğinden kapanmış sekme de (görünümün `webContents`'i gitmiş) son adresiyle yeniden açılıyor.
+   */
   private wake(b: Browser, t: Tab) {
-    if (!t.asleep) return
-    const { entries, index } = t.asleep
+    if (!t.asleep && live(t)) return
+    const { entries, index } = t.asleep ?? { entries: [], index: 0 }
+    if (!t.asleep) this.win.contentView.removeChildView(t.view)
     t.asleep = null
     t.used = Date.now()
     t.view = this.newView(b)
@@ -537,7 +546,7 @@ export class Browsers {
     const l = L()
     Menu.buildFromTemplate([
       { label: l.newTab, click: () => this.openTab(browserId) },
-      { label: l.reload, click: () => t.view.webContents.reload() },
+      { label: l.reload, click: () => this.tab(browserId, tabId)?.view.webContents.reload() },
       { label: l.duplicate, click: () => this.duplicateTab(browserId, tabId) },
       { label: t.muted ? l.unmute : l.mute, click: () => this.setMuted(browserId, tabId, !t.muted) },
       { type: 'separator' },
@@ -593,15 +602,14 @@ export class Browsers {
     Menu.buildFromTemplate(items).popup({ window: this.win })
   }
 
-  /** Etkin tarayıcının etkin sekmesi; kullanıcının gezinme düğmeleri bunu kullanıyor. */
+  /** Etkin tarayıcının etkin sekmesi; kullanıcının gezinme düğmeleri bunu kullanıyor. Uyuyorsa uyandırılıyor. */
   current(): Tab | undefined {
     const b = this.active()
-    return b?.tabs.find((t) => t.id === b.activeTabId)
+    return b ? this.tab(b.id) : undefined
   }
 
   navigate(input: string) {
-    const t = this.current()
-    if (t) void t.view.webContents.loadURL(toUrl(input)).catch(() => {})
+    void this.current()?.view.webContents.loadURL(toUrl(input)).catch(() => {})
   }
 
   /* ---------------- agent için ---------------- */
@@ -623,8 +631,8 @@ export class Browsers {
   }
 
   contents(browserId: string, tabId?: string): WebContents | undefined {
-    const wc = this.tab(browserId, tabId)?.view.webContents
-    return wc && !wc.isDestroyed() ? wc : undefined
+    const t = this.tab(browserId, tabId)
+    return t && live(t)
   }
 
   /**
@@ -676,8 +684,8 @@ export class Browsers {
 
   /** Canlı pencerede sayfa masaüstü genişliğinde düzenlenip küçültülüyor; gezinme bunu sıfırladığı için yeniden uygulanıyor. */
   private emulate(t: Tab) {
-    const wc = t.view.webContents
-    if (wc.isDestroyed() || !t.pip) return
+    const wc = live(t)
+    if (!wc || !t.pip) return
     const width = this.pageWidthOf(t)
     const scale = Math.floor(t.pip) / width
     wc.enableDeviceEmulation({ screenPosition: t.layout === 'mobile' ? 'mobile' : 'desktop', screenSize: { width, height: this.size.height }, viewPosition: { x: 0, y: 0 }, deviceScaleFactor: 0, viewSize: { width, height: this.size.height }, scale })
@@ -712,17 +720,16 @@ export class Browsers {
    */
   private show() {
     const visible = this.current()
-    if (visible) this.wake(this.active()!, visible)
     let slot = 0
     for (const b of this.list)
       for (const t of b.tabs) {
-        if (t.asleep) continue
-        const wc = t.view.webContents
+        const wc = live(t)
+        if (t.asleep || !wc) continue
         const inChat = this.slots.get(t.id)
         if (t === visible || !(t.agent || inChat)) {
           if (t.pip) {
             t.pip = 0
-            if (!wc.isDestroyed()) wc.disableDeviceEmulation()
+            wc.disableDeviceEmulation()
           }
           t.view.setVisible(t === visible)
           t.view.setBounds(t === visible ? this.fit(t) : { ...this.size, width: this.pageWidthOf(t) })
@@ -839,8 +846,9 @@ export class Browsers {
   private async capture(b: Browser) {
     // Uyuyan sekme önizleme için uyandırılmıyor: son önizlemesi duruyor.
     const t = b.tabs.find((x) => x.id === b.activeTabId)
-    if (!t || t.asleep || t.view.webContents.isDestroyed()) return
-    const img = await t.view.webContents.capturePage().catch(() => null)
+    const wc = t && !t.asleep ? live(t) : undefined
+    if (!wc) return
+    const img = await wc.capturePage().catch(() => null)
     // Gizli sekme yakalama anında çiziliyor; yine boş gelirse son iyi önizleme korunuyor.
     if (!img || img.isEmpty()) return
     // JPEG: PNG'nin onda biri; önizlemelerin hepsi her değişiklikte arayüze gidiyor.
