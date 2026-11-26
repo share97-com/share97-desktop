@@ -235,7 +235,7 @@ const MAX_MARKS = 90
 const MARK = `(() => {
   ${DEEP}
   document.getElementById(${JSON.stringify(MARKS_ID)})?.remove()
-  const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim()
+  const clean = (s) => String(s || '').replace(/\\s+/g, ' ').trim()
   const host = document.createElement('div')
   host.id = ${JSON.stringify(MARKS_ID)}
   host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647'
@@ -408,7 +408,8 @@ export async function waitFor(d: Driver, text: string, timeoutMs: number) {
   const until = Date.now() + timeoutMs
   const probe = `document.body ? document.body.innerText.toLowerCase().includes(${JSON.stringify(text.toLowerCase())}) : false`
   while (Date.now() < until) {
-    if (await d.evaluate<boolean>(probe)) return true
+    // Sayfa arada geziniyorsa (çalışma bağlamı yok) hata değil: beklemeye devam.
+    if (await d.evaluate<boolean>(probe).catch(() => false)) return true
     await new Promise((r) => setTimeout(r, 500))
   }
   return false

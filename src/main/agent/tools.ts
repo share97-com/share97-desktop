@@ -384,6 +384,14 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     return wc
   }
 
+  /** Uygulama tarayıcısının sekmesi (kapalı tarayıcı açılıyor); yoksa hata: araç olmayan sekmede "tamam" demesin. */
+  function appTabOf(a: { browser_id: string; tab_id?: string }) {
+    b.open(a.browser_id)
+    const t = b.tab(a.browser_id, a.tab_id)
+    if (!t) throw new Error('Browser or tab not found. Call list_browsers.')
+    return t
+  }
+
   const browserTools = [
     def(
       'list_browsers',
@@ -509,13 +517,14 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
       if (!a.tab_id) throw new Error('tab_id is required.')
       const cid = chromeOf(a.browser_id)
       if (cid) await cb.call(cid, 'tabs.activate', { tabId: chromeTabId(usableChrome(cb, cid), a.tab_id) })
-      else b.activateTab(a.browser_id, a.tab_id)
+      else b.activateTab(a.browser_id, appTabOf(a).id)
       return 'Switched.'
     }),
     def('close_tab', 'Close a tab (closing the last tab of an app browser closes it, keeping its sign-ins).', z.object({ browser_id: z.string(), tab_id: z.string() }), async (a) => {
       const cid = chromeOf(a.browser_id)
       if (cid) await cb.call(cid, 'tabs.close', { tabId: chromeTabId(usableChrome(cb, cid), a.tab_id) })
-      else b.closeTab(a.browser_id, a.tab_id)
+      else if (b.get(a.browser_id)?.tabs.some((t) => t.id === a.tab_id)) b.closeTab(a.browser_id, a.tab_id)
+      else throw new Error('Tab not found (or its browser is closed). Call list_browsers.')
       return 'Closed.'
     }),
     def(
@@ -771,21 +780,25 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     ),
     def('find_in_page', 'Find text on the page like Ctrl+F: highlights matches (app browsers) and returns how many there are.', z.object({ ...target, text: z.string() }), async (a) => {
       if (chromeOf(a.browser_id)) return onTab(a, async (d) => `${await page.countText(d, a.text)} match(es) for "${a.text}".`)
-      const wc = b.contents(a.browser_id, a.tab_id)
-      if (!wc) throw new Error('Browser or tab not found. Call list_browsers.')
+      const wc = appTab(a)
+      if (!a.text) throw new Error('text is required.')
       return new Promise<string>((resolve) => {
-          const timer = setTimeout(() => resolve('No result (timeout).'), 5000)
-          wc.once('found-in-page', (_e, r) => {
-            clearTimeout(timer)
-            resolve(`${r.matches} match(es) for "${a.text}".`)
-          })
-          wc.findInPage(a.text)
-        })
+        // Her yolda dinleyici kalkıyor: zaman aşımından sonra gelen sonuç bir sonraki aramayı bozmasın.
+        const end = (text: string) => {
+          clearTimeout(timer)
+          if (!wc.isDestroyed()) wc.off('found-in-page', found)
+          resolve(text)
+        }
+        const found = (_e: Electron.Event, r: Electron.Result) => r.finalUpdate && end(`${r.matches} match(es) for "${a.text}".`)
+        const timer = setTimeout(() => end('No result (timeout).'), 5000)
+        wc.on('found-in-page', found)
+        wc.findInPage(a.text)
+      })
     }),
     def('set_zoom', 'Set page zoom (1 = 100%, 0.5 = 50%, 2 = 200%) to see more rows or read small text.', z.object({ ...target, factor: z.number().min(0.25).max(5) }), async (a) => {
       const cid = chromeOf(a.browser_id)
       if (cid) await cb.call(cid, 'tabs.zoom', { tabId: chromeTabId(usableChrome(cb, cid), a.tab_id), factor: a.factor })
-      else b.setZoom(a.browser_id, a.tab_id, a.factor)
+      else b.setZoom(a.browser_id, appTabOf(a).id, a.factor)
       return `Zoom ${Math.round(a.factor * 100)}%.`
     }),
     def('mute_tab', 'Mute or unmute a tab.', z.object({ ...target, muted: z.boolean() }), async (a) => {
@@ -794,16 +807,13 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
         await cb.call(cid, 'tabs.mute', { tabId: chromeTabId(usableChrome(cb, cid), a.tab_id), muted: a.muted })
         return a.muted ? 'Muted.' : 'Unmuted.'
       }
-      const t = b.tab(a.browser_id, a.tab_id)
-      if (!t) throw new Error('Tab not found.')
-      b.setMuted(a.browser_id, t.id, a.muted)
+      b.setMuted(a.browser_id, appTabOf(a).id, a.muted)
       return a.muted ? 'Muted.' : 'Unmuted.'
     }),
     def('duplicate_tab', 'Open a copy of a tab in the same browser.', z.object(target), async (a) => {
       const cid = chromeOf(a.browser_id)
       if (cid) return JSON.stringify({ tab_id: String((await cb.call<{ id: number }>(cid, 'tabs.duplicate', { tabId: chromeTabId(usableChrome(cb, cid), a.tab_id) })).id) })
-      const t = b.tab(a.browser_id, a.tab_id)
-      const copy = t && b.duplicateTab(a.browser_id, t.id)
+      const copy = b.duplicateTab(a.browser_id, appTabOf(a).id)
       if (!copy) throw new Error('Tab not found.')
       return JSON.stringify({ tab_id: copy.id })
     }),
@@ -920,9 +930,7 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
           const notes = await chromeDownloads(cid, 0)
           return d.state === 'complete' && notes.length ? notes.join('\n') : [`Chrome download ${d.state}. The link may need a click on the page (click_by_vision) or a sign-in.`, ...notes].join('\n')
         }
-        const wc = b.contents(a.browser_id, a.tab_id)
-        if (!wc) throw new Error('Browser or tab not found. Call list_browsers.')
-        wc.downloadURL(a.url)
+        appTab(a).downloadURL(toUrl(a.url))
         const notes = await appDownloads(120_000)
         return notes.length ? notes.join('\n') : 'No download started: the link may need a click on the page (click_by_vision) or a sign-in. Open it with navigate and read_page.'
       },
@@ -986,9 +994,12 @@ Reply with ONLY {"found": true, "x": <0-1000>, "y": <0-1000>} where x,y is the C
     }),
     def('toggle_devtools', 'Open or close developer tools for an app browser tab (console, network, elements).', z.object(target), async (a) => {
       if (chromeOf(a.browser_id)) throw new Error(APP_ONLY)
+      // `isDevToolsOpened` açma/kapama hemen yansımıyor: sonuç önceki durumdan.
       const wc = appTab(a)
-      wc.toggleDevTools()
-      return wc.isDevToolsOpened() ? 'DevTools open.' : 'DevTools closed.'
+      const open = !wc.isDevToolsOpened()
+      if (open) wc.openDevTools()
+      else wc.closeDevTools()
+      return open ? 'DevTools open.' : 'DevTools closed.'
     }),
     def('toggle_fullscreen', 'Toggle full screen for the app window (F11).', z.object({}), async () => {
       b.key('fullscreen')

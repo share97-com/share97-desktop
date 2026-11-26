@@ -179,8 +179,15 @@ export class Browsers {
     if (!b) throw new Error('Browser not found.')
     b.settings = normalize(b.settings, patch)
     this.applySettings(b)
-    // Görünüm tarayıcının bütün açık sekmelerine de geçiyor (hesap ekranından "mobil / masaüstü").
-    if (patch.layout !== undefined || patch.width !== undefined) for (const t of b.tabs) this.setLayout(b.id, t.id, b.settings.layout, b.settings.width)
+    // Görünüm tarayıcının bütün sekmelerine de geçiyor (hesap ekranından "mobil / masaüstü"). Uyuyan sekme uyandırılmıyor: user agent'ı uyanınca uygulanıyor.
+    if (patch.layout !== undefined || patch.width !== undefined) {
+      for (const t of b.tabs) {
+        t.layout = b.settings.layout
+        t.width = b.settings.width
+        if (live(t) && this.applyUa(b, t)) live(t)!.reload()
+      }
+      this.show()
+    }
     this.changed()
     return b.settings
   }
@@ -262,11 +269,11 @@ export class Browsers {
     this.list.splice(this.list.indexOf(b), 1)
     delete this.thumbs[id]
     this.saveThumbnails()
-    // Tarayıcı silinince çerezleri ve girişleri de gidiyor.
-    await this.ses(b).clearData()
     if (this.activeId === id) this.activate(null)
     else this.changed()
     this.emit.thumbnails(this.thumbs)
+    // Tarayıcı silinince çerezleri ve girişleri de gidiyor.
+    await this.ses(b).clearData()
   }
 
   update(id: string, patch: { name?: string; note?: string; color?: string }) {
@@ -380,6 +387,7 @@ export class Browsers {
    * kalıyor. Görünen, agent'ın çalıştığı, ses çalan, yüklenen ya da geliştirici araçları açık sekme uyumuyor.
    */
   private sleepIdle() {
+    if (this.win.isDestroyed()) return
     const now = Date.now()
     const visible = this.current()
     for (const b of this.list)
@@ -589,9 +597,8 @@ export class Browsers {
         { label: `${l.search}: "${p.selectionText.trim().slice(0, 30)}"`, click: () => this.openTab(b.id, `https://www.google.com/search?q=${encodeURIComponent(p.selectionText.trim())}`) },
         { type: 'separator' },
       )
+    if (isWebUrl(t.url) && t.url !== 'about:blank') items.push({ label: `${l.translate} (${app.getLocale()})`, click: () => this.translate(b.id, t.id, app.getLocale()) }, { type: 'separator' })
     items.push(
-      { label: `${l.translate} (${app.getLocale()})`, click: () => this.translate(b.id, t.id, app.getLocale()) },
-      { type: 'separator' },
       { label: l.back, enabled: wc.navigationHistory.canGoBack(), click: () => wc.navigationHistory.goBack() },
       { label: l.forward, enabled: wc.navigationHistory.canGoForward(), click: () => wc.navigationHistory.goForward() },
       { label: l.reload, click: () => wc.reload() },
@@ -719,6 +726,7 @@ export class Browsers {
    * küçültülerek çiziliyor. Yuvası olan sekme tur boyunca görünür kalıyor (araçlar arasında da).
    */
   private show() {
+    if (this.win.isDestroyed()) return
     const visible = this.current()
     let slot = 0
     for (const b of this.list)
@@ -782,7 +790,8 @@ export class Browsers {
       t.favicon = icons[0] ?? null
       this.changed()
     })
-    wc.on('render-process-gone', () => wc.reload())
+    // Çöken sayfa yeniden yükleniyor; kapatılan sekmenin işlemi (`clean-exit`) ya da yok edilmiş sayfa değil.
+    wc.on('render-process-gone', (_e, d) => d.reason !== 'clean-exit' && !wc.isDestroyed() && wc.reload())
     wc.on('audio-state-changed', (e) => {
       t.audible = e.audible
       this.changed()
@@ -819,8 +828,8 @@ export class Browsers {
     const asking = new Map<string, Promise<boolean>>()
     ses.setPermissionRequestHandler((wc, permission, cb, details) => {
       if (ALLOW.has(permission)) return cb(true)
-      if (!ASK.has(permission)) return cb(false)
-      let origin = wc.getURL()
+      if (!ASK.has(permission) || this.win.isDestroyed()) return cb(false)
+      let origin = (wc as WebContents | null)?.getURL() ?? ''
       try {
         origin = new URL(details.requestingUrl).origin
       } catch {}
@@ -863,7 +872,7 @@ export class Browsers {
    * önizlemesi sayfa yüklenince ve tarayıcıdan çıkılırken alınıyor.
    */
   private async captureAll() {
-    if (this.activeId || this.win.isMinimized() || !this.win.isVisible()) return
+    if (this.activeId || this.win.isDestroyed() || this.win.isMinimized() || !this.win.isVisible()) return
     for (const b of this.list) await this.capture(b)
   }
 

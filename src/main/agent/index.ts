@@ -630,8 +630,10 @@ export class Agent {
       return JSON.stringify({ chat_id: id, answer: answer ?? '', ...(last?.error && { error: last.error }) })
     }
     // Dış agent bir sohbete hizmet ediyorsa çağrı o sohbetin turunda görünür; yoksa MCP sohbetinde.
-    const live = this.serving.get(this.servingId)
-    const r = live ? this.records.get(this.servingId)! : this.mcpRecord()
+    // Hizmet edilen sohbet arada silindiyse çağrı MCP sohbetine düşüyor.
+    const served = this.records.get(this.servingId)
+    const live = served && this.serving.get(this.servingId)
+    const r = live ? served : this.mcpRecord()
     const chat = r.chat
     const part: ToolPart = { type: 'tool', id: randomUUID(), name, args: JSON.stringify(args ?? {}).slice(0, ARGS_TAIL), status: 'running', startedAt: Date.now() }
     const turn: Turn = live?.turn ?? { chat, msg: { id: randomUUID(), role: 'assistant', parts: [] } }
